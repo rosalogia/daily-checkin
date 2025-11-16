@@ -80,6 +80,39 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 | ~/deregister~        | Remove from daily check-ins           | All users   |
 | ~/set-checkin-channel~ | Configure daily post channel         | Admin only  |
 
+* Project Structure
+
+** Overview
+The bot is organized into a modular structure for maintainability and scalability:
+
+#+BEGIN_SRC
+src/
+├── main.rs              # Bot initialization and configuration
+├── handler.rs           # Discord event handler
+├── bot.rs               # Bot state management with shared data
+├── data.rs              # Data structures and JSON persistence
+├── commands/
+│   ├── mod.rs           # Command registration and routing
+│   ├── ping.rs          # Basic ping command
+│   ├── user.rs          # User commands (register/edit/deregister goals)
+│   └── admin.rs         # Admin commands (set-checkin-channel)
+└── utils/
+    ├── mod.rs           # Utility module exports
+    └── responses.rs     # Common response builders
+#+END_SRC
+
+** Key Design Principles
+- *Separation of concerns*: Each module has a single responsibility
+- *Modular commands*: Easy to add new commands without modifying existing code
+- *Centralized routing*: All command dispatch handled in =commands/mod.rs=
+- *Shared utilities*: Consistent response formatting and reusable helpers
+- *Clean initialization*: =main.rs= only handles bot setup, no business logic
+
+** Adding New Commands
+1. Create command functions in appropriate module (=user.rs=, =admin.rs=, or new module)
+2. Register command in =commands/mod.rs= registration and routing functions
+3. Use shared response builders from =utils/responses.rs= for consistency
+
 * Development Roadmap
 
 ** Phase 1: Foundation & Basic Bot Setup
