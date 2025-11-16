@@ -131,11 +131,12 @@ src/
 *Goal: Users can register and manage their goals*
 
 - [X] Implement ~/register-goal~ slash command
-- [ ] Implement ~/edit-goal~ slash command  
-- [ ] Implement ~/deregister~ slash command
+- [X] Implement ~/edit-goal~ slash command (alias for register-goal)
+- [X] Implement ~/deregister~ slash command
 - [X] Basic data operations (CRUD for users and goals)
 - [X] Input validation and error messages
 - [X] Command helper utilities with error handling
+- [X] Smart re-registration (preserves data, resets streaks)
 
 *Deliverable: Users can register, edit, and remove their goals*
 

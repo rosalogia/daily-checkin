@@ -99,4 +99,10 @@ impl BotData {
     pub fn add_or_update_server(&mut self, server_config: ServerConfig) {
         self.servers.insert(server_config.guild_id.clone(), server_config);
     }
+
+    pub fn get_user_mut(&mut self, guild_id: &str, user_id: &str) -> Option<&mut UserData> {
+        self.users
+            .get_mut(guild_id)
+            .and_then(|guild_users| guild_users.get_mut(user_id))
+    }
 }

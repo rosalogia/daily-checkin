@@ -66,11 +66,22 @@ pub async fn register_goal(
     {
         let mut data_write = data.write().await;
         
-        if let Some(existing_user) = data_write.users.get_mut(&guild_id).and_then(|guild_users| guild_users.get_mut(&user_id)) {
-            // Update existing user - preserve all streak data
-            existing_user.goal = goal.clone();
-            existing_user.updated_at = now;
-            is_update = true;
+        if let Some(existing_user) = data_write.get_user_mut(&guild_id, &user_id) {
+            if existing_user.is_active {
+                // Update existing active user - preserve all streak data
+                existing_user.goal = goal.clone();
+                existing_user.updated_at = now;
+                is_update = true;
+            } else {
+                // Reactivate inactive user - reset streak, optionally update goal
+                existing_user.goal = goal.clone();
+                existing_user.current_streak = 0;
+                existing_user.last_checkin_date = None;
+                existing_user.grace_period_start = None;
+                existing_user.is_active = true;
+                existing_user.updated_at = now;
+                is_update = false; // Treat as new registration for messaging
+            }
         } else {
             // Create new user
             let user_data = UserData {
@@ -119,15 +130,8 @@ pub async fn edit_goal(
     command: &CommandInteraction,
     data: SharedBotData,
 ) -> serenity::Result<()> {
-    info!("Edit goal command executed by user {}", command.user.id);
-    
-    // TODO: Implement goal editing logic
-    let content = "🚧 Goal editing coming soon!";
-    let response = CreateInteractionResponseMessage::new().content(content);
-    let builder = CreateInteractionResponse::Message(response);
-    
-    command.create_response(&ctx.http, builder).await?;
-    Ok(())
+    // /edit-goal is an alias for /register-goal - same functionality, clearer intent
+    register_goal(ctx, command, data).await
 }
 
 pub async fn deregister(
@@ -135,13 +139,40 @@ pub async fn deregister(
     command: &CommandInteraction,
     data: SharedBotData,
 ) -> serenity::Result<()> {
-    info!("Deregister command executed by user {}", command.user.id);
-    
-    // TODO: Implement deregistration logic
-    let content = "🚧 Deregistration coming soon!";
-    let response = CreateInteractionResponseMessage::new().content(content);
-    let builder = CreateInteractionResponse::Message(response);
-    
-    command.create_response(&ctx.http, builder).await?;
+    // Extract context using helper functions
+    let user_id = command_helpers::get_user_id(command);
+    let guild_id = command_helpers::get_guild_id(command)?;
+
+    info!("Deregister command executed by user {}", user_id);
+
+    // Deactivate user (preserve data for potential re-registration)
+    {
+        let mut data_write = data.write().await;
+        
+        let existing_user = data_write.get_user_mut(&guild_id, &user_id)
+            .ok_or_else(|| serenity::Error::Other("You're not currently registered for daily check-ins"))?;
+        
+        if !existing_user.is_active {
+            return Err(serenity::Error::Other("You're not currently registered for daily check-ins"));
+        }
+        
+        let current_streak = existing_user.current_streak;
+        existing_user.is_active = false;
+        existing_user.updated_at = Utc::now();
+        
+        if let Err(e) = data_write.save().await {
+            error!("Failed to save user data: {}", e);
+            let response = responses::error_response("Failed to remove your registration. Please try again.");
+            command.create_response(&ctx.http, response).await?;
+            return Ok(());
+        }
+
+        let message = format!("You have been removed from daily check-ins. Your streak was {} days. Use `/register-goal` to re-register later if you'd like.", current_streak);
+        let response = responses::success_response(&message);
+        command.create_response(&ctx.http, response).await?;
+
+        info!("Successfully deactivated user {} in guild {}", user_id, guild_id);
+    }
+
     Ok(())
 }
