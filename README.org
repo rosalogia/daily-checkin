@@ -1,0 +1,162 @@
+#+TITLE: Daily Check-in
+
+* Overview
+
+A Discord bot designed to facilitate daily progress tracking and accountability. The bot posts daily messages pinging registered users to share their progress toward personal goals, maintains streak tracking, and provides administrative controls for server management.
+
+* Core Features
+
+** Daily Check-in System
+- Posts automated daily messages in configured channels
+- Pings all registered users to request progress updates
+- Creates threads under daily posts for user responses
+- Displays current streak counts for each user in the daily post
+
+** User Registration & Goal Management
+- Users register via slash commands with personal goals
+- Goal editing and deregistration capabilities
+- No content validation on responses - any reply counts toward streak
+
+** Streak Tracking
+- Tracks consecutive days of user participation
+- Immediate streak reset for missed days
+- Grace period: 2 days for streaks over 30 days
+- Individual streak display in daily posts (e.g., "John (Day 5), Sarah (Day 12)")
+
+** Administrative Controls
+- Server admins can configure the daily check-in channel
+- Per-server timezone configuration for daily posts
+- Channel-specific bot permissions
+
+* User Experience Flow
+
+** Registration
+1. User runs ~/register-goal~ slash command
+2. Provides their personal goal/objective
+3. Bot confirms registration and explains daily check-in process
+
+** Daily Interaction
+1. Bot posts daily message at configured time
+2. Message pings all registered users with their current streaks
+3. Users respond in the created thread
+4. Bot tracks responses and updates streaks accordingly
+
+** Goal Management
+- ~/edit-goal~: Modify existing goal text
+- ~/deregister~: Remove from daily check-ins
+
+** Administrative Setup
+- ~/set-checkin-channel~: Configure where daily posts appear
+- Timezone configuration per server
+
+* Technical Requirements
+
+** Database Schema
+- Users: Discord ID, server ID, goal text, current streak, last check-in date
+- Servers: Server ID, configured channel, timezone setting
+- Check-ins: User ID, date, thread message ID
+
+** Bot Permissions
+- Send Messages
+- Create Public Threads
+- Mention Everyone (for daily pings)
+- Use Slash Commands
+- Read Message History
+
+** Streak Logic
+- Count consecutive days with thread responses
+- Reset to 0 for missed days (unless 30+ day grace period applies)
+- Grace period: Allow up to 2 missed days for streaks ≥30 days
+- Track last response date to calculate streaks accurately
+
+* Commands
+
+| Command              | Description                           | Permissions |
+|----------------------+---------------------------------------+-------------|
+| ~/register-goal~     | Register with a personal goal         | All users   |
+| ~/edit-goal~         | Modify existing goal                  | All users   |
+| ~/deregister~        | Remove from daily check-ins           | All users   |
+| ~/set-checkin-channel~ | Configure daily post channel         | Admin only  |
+
+* Development Roadmap
+
+** Phase 1: Foundation & Basic Bot Setup
+*Goal: Get a working Discord bot that can respond to basic commands*
+
+- [ ] Set up Rust project with Discord library (serenity)
+- [ ] Implement bot authentication and basic event handling
+- [ ] Create basic SQLite database schema
+- [ ] Implement ~/ping~ command to verify bot functionality
+- [ ] Basic error handling and logging framework
+
+*Deliverable: Bot connects to Discord and responds to simple commands*
+
+** Phase 2: Core User Management
+*Goal: Users can register and manage their goals*
+
+- [ ] Implement ~/register-goal~ slash command
+- [ ] Implement ~/edit-goal~ slash command  
+- [ ] Implement ~/deregister~ slash command
+- [ ] Basic database operations (CRUD for users and goals)
+- [ ] Input validation and error messages
+
+*Deliverable: Users can register, edit, and remove their goals*
+
+** Phase 3: Admin Configuration
+*Goal: Server admins can configure bot behavior*
+
+- [ ] Implement ~/set-checkin-channel~ admin command
+- [ ] Per-server configuration storage
+- [ ] Permission checking for admin commands
+- [ ] Timezone configuration for servers
+
+*Deliverable: Admins can configure where daily posts appear*
+
+** Phase 4: Daily Posting System
+*Goal: Bot automatically posts daily check-in messages*
+
+- [ ] Implement scheduled daily posting with cron-like functionality
+- [ ] Generate daily messages with user pings
+- [ ] Create threads automatically under daily posts
+- [ ] Basic streak display (without complex logic)
+
+*Deliverable: Bot posts daily messages and creates threads*
+
+** Phase 5: Response Tracking & Basic Streaks
+*Goal: Track user responses and calculate simple streaks*
+
+- [ ] Monitor thread responses from registered users
+- [ ] Implement basic streak counting (consecutive days)
+- [ ] Simple streak reset on missed days
+- [ ] Update daily posts with current streak counts
+
+*Deliverable: Working streak system with basic rules*
+
+** Phase 6: Advanced Streak Logic
+*Goal: Implement grace period and refined streak rules*
+
+- [ ] Implement 30+ day grace period logic
+- [ ] Handle edge cases (timezone differences, late responses)
+- [ ] Streak recovery mechanisms
+- [ ] Historical data preservation
+
+*Deliverable: Full streak system matching requirements*
+
+** Phase 7: Polish & Production Readiness
+*Goal: Production-ready bot with robust error handling*
+
+- [ ] Comprehensive error handling and recovery
+- [ ] Improved logging and monitoring
+- [ ] Configuration validation
+- [ ] Performance optimization
+- [ ] Documentation for deployment
+
+*Deliverable: Production-ready Discord bot*
+
+* Future Considerations
+
+- Weekly/monthly summary statistics
+- Goal category tagging
+- Motivational quotes or tips in daily posts
+- Integration with external productivity tools
+- Leaderboards or community challenges
