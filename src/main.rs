@@ -11,6 +11,8 @@ use serenity::{
 use tracing::{error, info};
 
 struct Handler;
+mod data;
+
 
 #[async_trait]
 impl EventHandler for Handler {

@@ -51,10 +51,12 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 
 * Technical Requirements
 
-** Database Schema
-- Users: Discord ID, server ID, goal text, current streak, last check-in date
-- Servers: Server ID, configured channel, timezone setting
-- Check-ins: User ID, date, thread message ID
+** Data Storage
+- JSON-based persistence using Serde for schema-on-read
+- File path configurable via DATA_FILE_PATH environment variable
+- In-memory structures with periodic saves to disk
+- Simple, lightweight approach suitable for moderate server counts
+- See =src/data.rs= for detailed data structures
 
 ** Bot Permissions
 - Send Messages
@@ -83,10 +85,10 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 ** Phase 1: Foundation & Basic Bot Setup
 *Goal: Get a working Discord bot that can respond to basic commands*
 
-- [ ] Set up Rust project with Discord library (serenity)
-- [ ] Implement bot authentication and basic event handling
-- [ ] Create basic SQLite database schema
-- [ ] Implement ~/ping~ command to verify bot functionality
+- [X] Set up Rust project with Discord library (serenity)
+- [X] Implement bot authentication and basic event handling
+- [X] Create JSON-based data storage with Serde
+- [X] Implement ~/ping~ command to verify bot functionality
 - [ ] Basic error handling and logging framework
 
 *Deliverable: Bot connects to Discord and responds to simple commands*
@@ -97,7 +99,7 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 - [ ] Implement ~/register-goal~ slash command
 - [ ] Implement ~/edit-goal~ slash command  
 - [ ] Implement ~/deregister~ slash command
-- [ ] Basic database operations (CRUD for users and goals)
+- [ ] Basic data operations (CRUD for users and goals)
 - [ ] Input validation and error messages
 
 *Deliverable: Users can register, edit, and remove their goals*
