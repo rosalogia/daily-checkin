@@ -98,7 +98,8 @@ src/
 │   └── admin.rs         # Admin commands (set-checkin-channel)
 └── utils/
     ├── mod.rs           # Utility module exports
-    └── responses.rs     # Common response builders
+    ├── responses.rs     # Common response builders
+    └── command_helpers.rs # Command argument extraction utilities
 #+END_SRC
 
 ** Key Design Principles
@@ -122,18 +123,19 @@ src/
 - [X] Implement bot authentication and basic event handling
 - [X] Create JSON-based data storage with Serde
 - [X] Implement ~/ping~ command to verify bot functionality
-- [ ] Basic error handling and logging framework
+- [X] Basic error handling and logging framework
 
 *Deliverable: Bot connects to Discord and responds to simple commands*
 
 ** Phase 2: Core User Management
 *Goal: Users can register and manage their goals*
 
-- [ ] Implement ~/register-goal~ slash command
+- [X] Implement ~/register-goal~ slash command
 - [ ] Implement ~/edit-goal~ slash command  
 - [ ] Implement ~/deregister~ slash command
-- [ ] Basic data operations (CRUD for users and goals)
-- [ ] Input validation and error messages
+- [X] Basic data operations (CRUD for users and goals)
+- [X] Input validation and error messages
+- [X] Command helper utilities with error handling
 
 *Deliverable: Users can register, edit, and remove their goals*
 

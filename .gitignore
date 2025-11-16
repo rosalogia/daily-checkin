@@ -22,3 +22,5 @@ result-*
 
 # Logs
 *.log
+
+bot_data.json
