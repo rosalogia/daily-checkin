@@ -15,6 +15,7 @@ pub async fn register_commands(ctx: &Context) -> serenity::Result<()> {
         user::edit_goal_command(),
         user::deregister_command(),
         admin::set_channel_command(),
+        admin::set_checkin_time_command(),
     ];
 
     Command::set_global_commands(&ctx.http, commands).await?;
@@ -33,6 +34,7 @@ pub async fn handle_command(
             "edit-goal" => user::edit_goal(ctx, command, data).await?,
             "deregister" => user::deregister(ctx, command, data).await?,
             "set-checkin-channel" => admin::set_channel(ctx, command, data).await?,
+            "set-checkin-time" => admin::set_checkin_time(ctx, command, data).await?,
             _ => {
                 tracing::warn!("Unknown command: {}", command.data.name);
             }

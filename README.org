@@ -79,6 +79,7 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 | ~/edit-goal~         | Modify existing goal                  | All users   |
 | ~/deregister~        | Remove from daily check-ins           | All users   |
 | ~/set-checkin-channel~ | Configure daily post channel         | Admin only  |
+| ~/set-checkin-time~  | Configure daily post time & timezone | Admin only  |
 
 * Project Structure
 
@@ -143,12 +144,13 @@ src/
 ** Phase 3: Admin Configuration
 *Goal: Server admins can configure bot behavior*
 
-- [ ] Implement ~/set-checkin-channel~ admin command
-- [ ] Per-server configuration storage
-- [ ] Permission checking for admin commands
-- [ ] Timezone configuration for servers
+- [X] Implement ~/set-checkin-channel~ admin command
+- [X] Per-server configuration storage
+- [X] Permission checking for admin commands
+- [X] Timezone configuration for servers
+- [X] Implement ~/set-checkin-time~ admin command with timezone support
 
-*Deliverable: Admins can configure where daily posts appear*
+*Deliverable: Admins can configure where daily posts appear and when they are posted*
 
 ** Phase 4: Daily Posting System
 *Goal: Bot automatically posts daily check-in messages*
