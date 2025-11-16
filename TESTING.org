@@ -1,0 +1,205 @@
+#+TITLE: Daily Check-in Bot - Manual Testing Guide
+#+AUTHOR: 
+#+DATE: 
+
+* Overview
+
+This document provides comprehensive manual test cases to verify the Daily Check-in Discord Bot functionality. Follow these tests to ensure all implemented features work correctly before deployment or after making changes.
+
+* Prerequisites
+
+** Bot Setup
+- Discord bot application created with proper permissions
+- Bot invited to test server with =applications.commands= scope
+- Bot permissions: Send Messages, Create Public Threads, Mention Everyone, Use Slash Commands
+- Bot running with =DISCORD_TOKEN= environment variable set
+
+** Test Environment
+- Test Discord server where you have admin permissions
+- At least one test channel for bot commands
+- Multiple user accounts (or coordinated testing with other users) for multi-user scenarios
+
+* Phase 1: Foundation Tests
+
+** Bot Connectivity
+- [ ] Bot appears online in Discord server
+- [ ] Bot shows as "Connected" in console logs
+- [ ] Slash commands are registered (may take up to 1 hour for global commands)
+
+** Basic Command Response
+- [ ] =/ping= command appears in Discord's slash command autocomplete
+- [ ] =/ping= command responds with "Pong! 🏓"
+- [ ] Response appears immediately (no timeout errors)
+
+* Phase 2: User Management Tests
+
+** Command Registration
+- [ ] =/register-goal= appears in slash command autocomplete
+- [ ] =/edit-goal= appears in slash command autocomplete  
+- [ ] =/deregister= appears in slash command autocomplete
+- [ ] All commands show proper descriptions and required parameters
+
+** Goal Registration - New Users
+
+*** Test Case: Valid Goal Registration
+- [ ] Run =/register-goal goal:"Learn Rust programming"=
+- [ ] Expect: ✅ success response with welcome message
+- [ ] Expect: Message mentions daily check-ins and pings
+- [ ] Verify: =bot_data.json= file created/updated with user data
+
+*** Test Case: Empty Goal
+- [ ] Run =/register-goal goal:"   "= (spaces only)
+- [ ] Expect: ❌ error response about empty goal
+
+*** Test Case: Long Goal  
+- [ ] Run =/register-goal= with goal text >500 characters
+- [ ] Expect: ❌ error response about character limit
+
+*** Test Case: DM Usage (Should Fail)
+- [ ] Try =/register-goal= in direct message to bot
+- [ ] Expect: ❌ error response about server-only usage
+
+** Goal Updates - Existing Users
+
+*** Test Case: Goal Update
+- [ ] Register goal first: =/register-goal goal:"Original goal"=
+- [ ] Update goal: =/register-goal goal:"Updated goal"=
+- [ ] Expect: ✅ success response mentioning "updated"
+- [ ] Verify: No mention of "Welcome" in response
+- [ ] Verify: User data preserved in =bot_data.json= (same created_at, etc.)
+
+*** Test Case: Edit Goal Alias
+- [ ] Register goal first
+- [ ] Run =/edit-goal goal:"New goal via edit command"=
+- [ ] Expect: Same behavior as =/register-goal= (it's an alias)
+
+** Goal Deregistration
+
+*** Test Case: Valid Deregistration
+- [ ] Register goal first: =/register-goal goal:"Test goal"=
+- [ ] Run =/deregister=
+- [ ] Expect: ✅ success response mentioning streak count and re-registration option
+- [ ] Verify: User marked as =is_active: false= in =bot_data.json=
+
+*** Test Case: Deregister Non-Registered User
+- [ ] Run =/deregister= without registering first
+- [ ] Expect: ❌ error response about not being registered
+
+*** Test Case: Double Deregistration
+- [ ] Register, then deregister successfully
+- [ ] Run =/deregister= again
+- [ ] Expect: ❌ error response about not being registered
+
+** Re-registration After Deactivation
+
+*** Test Case: Reactivate with Same Goal
+- [ ] Register: =/register-goal goal:"Test goal"=
+- [ ] Deregister: =/deregister=
+- [ ] Re-register with same goal: =/register-goal goal:"Test goal"=
+- [ ] Expect: ✅ welcome message (treated as new registration)
+- [ ] Verify: User marked as =is_active: true= with =current_streak: 0=
+
+*** Test Case: Reactivate with New Goal  
+- [ ] Register: =/register-goal goal:"Old goal"=
+- [ ] Deregister: =/deregister=
+- [ ] Re-register: =/register-goal goal:"New goal"=
+- [ ] Expect: ✅ welcome message with new goal
+- [ ] Verify: Goal updated, streak reset to 0
+
+* Data Persistence Tests
+
+** File Operations
+- [ ] Verify =bot_data.json= is created after first user registration
+- [ ] Stop bot, restart bot, run command - verify data persists
+- [ ] Check =bot_data.json= structure matches expected format
+- [ ] Verify timestamps are in ISO format
+
+** Data Integrity
+- [ ] Register multiple users in same server
+- [ ] Register users in multiple servers (if available)
+- [ ] Verify each user's data is stored separately
+- [ ] Verify guild isolation (users don't appear across servers)
+
+* Error Handling Tests
+
+** Invalid Input Handling
+- [ ] Commands with missing required parameters (should not be possible due to Discord validation)
+- [ ] Commands with invalid parameter types (should not be possible due to Discord validation)
+- [ ] Very long usernames/guild IDs (edge case testing)
+
+** System Error Simulation
+- [ ] Make =bot_data.json= read-only, attempt registration
+- [ ] Expect: Error message about save failure
+- [ ] Restore write permissions, verify normal operation resumes
+
+** Concurrent Access (If Testing with Multiple Users)
+- [ ] Have 2+ users run commands simultaneously
+- [ ] Verify all operations complete successfully
+- [ ] Check =bot_data.json= contains all users
+
+* Logging Verification
+
+** Console Output
+- [ ] Verify INFO level logs for successful command executions
+- [ ] Verify ERROR level logs for failed operations
+- [ ] Check user IDs and guild IDs appear in logs
+- [ ] Verify no sensitive data (tokens) appears in logs
+
+** Log Levels
+- [ ] Test with =RUST_LOG=debug= - verify debug logs appear
+- [ ] Test with =RUST_LOG=error= - verify only errors appear
+
+* Multi-User Scenarios
+
+** Same Server, Multiple Users
+- [ ] Have User A register goal
+- [ ] Have User B register different goal  
+- [ ] Verify both users' data stored separately
+- [ ] Have User A deregister
+- [ ] Verify User B unaffected
+
+** Cross-Server Testing (If Available)
+- [ ] Invite bot to second server
+- [ ] Register goal in Server A
+- [ ] Register goal in Server B with same user account
+- [ ] Verify separate data storage per server
+- [ ] Deregister from Server A
+- [ ] Verify Server B registration unaffected
+
+* Performance Tests
+
+** Response Time
+- [ ] Commands should respond within 3 seconds (Discord limit)
+- [ ] Test with =bot_data.json= containing 100+ users (simulate load)
+- [ ] Verify performance remains acceptable
+
+** Memory Usage
+- [ ] Monitor bot memory usage during extended operation
+- [ ] Run multiple commands in succession
+- [ ] Verify no obvious memory leaks
+
+* Regression Testing Checklist
+
+Run this abbreviated test suite after any code changes:
+
+- [ ] =/ping= still works
+- [ ] =/register-goal= with new user works  
+- [ ] =/register-goal= with existing user updates goal
+- [ ] =/deregister= works and preserves data
+- [ ] Re-registration after deregistration works
+- [ ] Data persists across bot restarts
+- [ ] Error messages are user-friendly
+
+* Test Data Cleanup
+
+After testing:
+- [ ] Remove test =bot_data.json= file
+- [ ] Clear any test data from production systems
+- [ ] Document any issues found during testing
+
+* Known Limitations (Current Phase)
+
+- No admin configuration commands yet (Phase 3)
+- No daily posting functionality (Phase 4)  
+- No streak tracking or thread monitoring (Phase 5+)
+- Commands are global (may take up to 1 hour to register/update)
