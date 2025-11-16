@@ -155,10 +155,11 @@ src/
 ** Phase 4: Daily Posting System
 *Goal: Bot automatically posts daily check-in messages*
 
-- [ ] Implement scheduled daily posting with cron-like functionality
-- [ ] Generate daily messages with user pings
-- [ ] Create threads automatically under daily posts
-- [ ] Basic streak display (without complex logic)
+- [X] Implement scheduled daily posting with cron-like functionality
+- [X] Generate daily messages with user pings and user goals
+- [X] Create threads automatically under daily posts
+- [X] Basic streak display (without complex logic)
+- [X] Automatic cleanup of old daily post data (>48 hours)
 
 *Deliverable: Bot posts daily messages and creates threads*
 

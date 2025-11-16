@@ -7,6 +7,7 @@ mod bot;
 mod handler;
 mod commands;
 mod utils;
+mod scheduler;
 
 use data::BotData;
 use bot::Bot;
@@ -56,6 +57,10 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to create Discord client: {}", e))?;
 
     info!("Bot initialized successfully, connecting to Discord...");
+
+    // Start the daily scheduler in the background
+    // We'll start it from the Ready event handler instead since we need a proper Context
+    info!("Daily scheduler will start when bot is ready");
 
     // Set up graceful shutdown
     if let Err(why) = client.start().await {

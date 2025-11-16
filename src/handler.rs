@@ -7,7 +7,7 @@ use serenity::{
     prelude::*,
 };
 use tracing::{info, error};
-use crate::{bot::SharedBotData, commands};
+use crate::{bot::SharedBotData, commands, scheduler::DailyScheduler};
 
 pub struct Handler {
     pub data: SharedBotData,
@@ -23,6 +23,13 @@ impl EventHandler for Handler {
         } else {
             info!("Successfully registered slash commands");
         }
+
+        // Start the daily scheduler
+        let scheduler = DailyScheduler::new(self.data.clone());
+        tokio::spawn(async move {
+            scheduler.start(ctx).await;
+        });
+        info!("Daily scheduler started");
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
