@@ -166,10 +166,11 @@ src/
 ** Phase 5: Response Tracking & Basic Streaks
 *Goal: Track user responses and calculate simple streaks*
 
-- [ ] Monitor thread responses from registered users
-- [ ] Implement basic streak counting (consecutive days)
-- [ ] Simple streak reset on missed days
-- [ ] Update daily posts with current streak counts
+- [X] Monitor thread responses from registered users
+- [X] Implement basic streak counting (consecutive days)
+- [X] Simple streak reset on missed days
+- [X] 24-hour response window enforcement
+- [X] Grace period logic for 30+ day streaks
 
 *Deliverable: Working streak system with basic rules*
 

@@ -43,7 +43,7 @@ pub struct DailyPost {
     pub channel_id: String,
     pub message_id: String,
     pub thread_id: Option<String>,
-    pub post_date: NaiveDate,
+    pub posted_at: DateTime<Utc>, // When the post was actually created
     pub created_at: DateTime<Utc>,
 }
 
@@ -51,8 +51,7 @@ pub struct DailyPost {
 pub struct BotData {
     pub servers: HashMap<String, ServerConfig>,
     pub users: HashMap<String, HashMap<String, UserData>>, // guild_id -> user_id -> UserData
-    pub checkins: HashMap<String, Vec<CheckinRecord>>, // guild_id -> checkins
-    pub daily_posts: HashMap<String, Vec<DailyPost>>, // guild_id -> posts
+    pub daily_posts: HashMap<String, DailyPost>, // guild_id -> current post
 }
 
 impl BotData {

@@ -8,6 +8,7 @@ mod handler;
 mod commands;
 mod utils;
 mod scheduler;
+mod streaks;
 
 use data::BotData;
 use bot::Bot;

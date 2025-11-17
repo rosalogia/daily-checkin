@@ -3,11 +3,12 @@ use serenity::{
     model::{
         application::Interaction,
         gateway::Ready,
+        channel::Message,
     },
     prelude::*,
 };
 use tracing::{info, error};
-use crate::{bot::SharedBotData, commands, scheduler::DailyScheduler};
+use crate::{bot::SharedBotData, commands, scheduler::DailyScheduler, streaks::StreakManager};
 
 pub struct Handler {
     pub data: SharedBotData,
@@ -35,6 +36,14 @@ impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Err(why) = commands::handle_command(&ctx, &interaction, self.data.clone()).await {
             error!("Error handling command: {}", why);
+        }
+    }
+
+    async fn message(&self, ctx: Context, msg: Message) {
+        // Process message for potential check-in responses
+        let streak_manager = StreakManager::new(self.data.clone());
+        if let Err(why) = streak_manager.process_message(&ctx, &msg).await {
+            error!("Error processing message for streaks: {}", why);
         }
     }
 }

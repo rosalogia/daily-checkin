@@ -1,5 +1,5 @@
-use crate::{bot::SharedBotData, data::DailyPost};
-use chrono::{DateTime, Utc, NaiveTime, Duration as ChronoDuration, Timelike};
+use crate::{bot::SharedBotData, data::DailyPost, streaks::StreakManager};
+use chrono::{DateTime, Utc, NaiveTime, Timelike};
 use chrono_tz::Tz;
 use serenity::{
     builder::{CreateMessage, CreateThread},
@@ -30,23 +30,18 @@ impl DailyScheduler {
             if let Err(e) = self.check_and_post_daily_messages(&ctx).await {
                 error!("Error in daily scheduler: {}", e);
             }
-            
-            // Clean up old daily posts every hour (when minutes == 0)
-            let now = Utc::now();
-            if now.minute() == 0 {
-                if let Err(e) = self.cleanup_old_daily_posts().await {
-                    error!("Error cleaning up old daily posts: {}", e);
-                }
-            }
         }
     }
 
     /// Check all servers and post daily messages if it's time
     async fn check_and_post_daily_messages(&self, ctx: &Context) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let data = self.data.read().await;
+        let mut data = self.data.write().await;
         let now = Utc::now();
         
-        for (guild_id, server_config) in &data.servers {
+        // Clone the servers map to avoid borrow checker issues
+        let servers = data.servers.clone();
+        
+        for (guild_id, server_config) in &servers {
             // Skip if no channel configured
             let channel_id = match &server_config.checkin_channel_id {
                 Some(id) => id,
@@ -58,19 +53,41 @@ impl DailyScheduler {
 
             // Check if it's time to post for this server
             if self.is_time_to_post(&server_config.daily_time, &server_config.timezone, now).await? {
-                let guild_id_parsed: GuildId = guild_id.parse()?;
-                let channel_id_parsed: ChannelId = channel_id.parse()?;
-                
-                // Check if we already posted today
-                if self.already_posted_today(&data, guild_id, now.date_naive()).await {
-                    debug!("Already posted today for guild {}", guild_id);
+                // Check if we already posted recently
+                if self.already_posted_recently(&data, guild_id, now) {
+                    debug!("Already posted recently for guild {}", guild_id);
                     continue;
                 }
 
                 info!("Posting daily message for guild {} in channel {}", guild_id, channel_id);
-                drop(data); // Release the read lock before posting
+                
+                // Run streak maintenance inline
+                match StreakManager::reset_streaks_for_guild(&mut data, guild_id).await {
+                    Ok(reset_count) => {
+                        if reset_count > 0 {
+                            info!("Reset {} streaks for guild {} before daily post", reset_count, guild_id);
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to run streak maintenance for guild {}: {}", guild_id, e);
+                    }
+                }
+                
+                // Save data after streak maintenance
+                if let Err(e) = data.save().await {
+                    error!("Failed to save data after streak maintenance for guild {}: {}", guild_id, e);
+                }
+                
+                let guild_id_parsed: GuildId = guild_id.parse()?;
+                let channel_id_parsed: ChannelId = channel_id.parse()?;
+                
+                // Release the write lock before posting
+                drop(data);
+                
                 self.post_daily_message(ctx, guild_id_parsed, channel_id_parsed).await?;
-                break; // Re-acquire lock on next iteration
+                
+                // Re-acquire the write lock for the next iteration
+                data = self.data.write().await;
             }
         }
 
@@ -101,15 +118,16 @@ impl DailyScheduler {
         Ok((current_minutes as i32 - target_minutes as i32).abs() < 1)
     }
 
-    /// Check if we already posted today for a guild
-    async fn already_posted_today(
+    /// Check if we already posted recently for a guild (within last 20 hours to prevent double posting)
+    fn already_posted_recently(
         &self,
         data: &crate::data::BotData,
         guild_id: &str,
-        today: chrono::NaiveDate,
+        now: DateTime<Utc>,
     ) -> bool {
-        if let Some(posts) = data.daily_posts.get(guild_id) {
-            posts.iter().any(|post| post.post_date == today)
+        if let Some(post) = data.daily_posts.get(guild_id) {
+            let hours_since_post = now.signed_duration_since(post.posted_at).num_hours();
+            hours_since_post < 20 // Prevent posting again too soon
         } else {
             false
         }
@@ -138,19 +156,17 @@ impl DailyScheduler {
         // Save the daily post record
         {
             let mut data = self.data.write().await;
+            let now = Utc::now();
             let daily_post = DailyPost {
                 guild_id: guild_id.to_string(),
                 channel_id: channel_id.to_string(),
                 message_id: message.id.to_string(),
                 thread_id: Some(thread.id.to_string()),
-                post_date: Utc::now().date_naive(),
-                created_at: Utc::now(),
+                posted_at: now, // When the post was actually created
+                created_at: now,
             };
             
-            data.daily_posts
-                .entry(guild_id.to_string())
-                .or_insert_with(Vec::new)
-                .push(daily_post);
+            data.daily_posts.insert(guild_id.to_string(), daily_post);
                 
             if let Err(e) = data.save().await {
                 error!("Failed to save daily post data: {}", e);
@@ -208,38 +224,5 @@ impl DailyScheduler {
         message.push_str("\n💪 Keep up the momentum!");
         
         Ok(message)
-    }
-
-    /// Clean up daily post records older than 48 hours
-    async fn cleanup_old_daily_posts(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut data = self.data.write().await;
-        let cutoff_date = (Utc::now() - ChronoDuration::days(2)).date_naive();
-        let mut cleaned_count = 0;
-        
-        for (guild_id, posts) in data.daily_posts.iter_mut() {
-            let original_len = posts.len();
-            posts.retain(|post| post.post_date >= cutoff_date);
-            let removed = original_len - posts.len();
-            cleaned_count += removed;
-            
-            if removed > 0 {
-                debug!("Cleaned {} old daily posts for guild {}", removed, guild_id);
-            }
-        }
-        
-        // Remove empty guild entries
-        data.daily_posts.retain(|_, posts| !posts.is_empty());
-        
-        if cleaned_count > 0 {
-            info!("Cleaned up {} old daily post records", cleaned_count);
-            
-            // Save the updated data
-            if let Err(e) = data.save().await {
-                error!("Failed to save data after cleanup: {}", e);
-                return Err(e.into());
-            }
-        }
-        
-        Ok(())
     }
 }
