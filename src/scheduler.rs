@@ -205,12 +205,7 @@ impl DailyScheduler {
         
         for user in sorted_users {
             let user_mention = format!("<@{}>", user.user_id);
-            let streak_text = if user.current_streak == 0 {
-                "Starting fresh".to_string()
-            } else {
-                format!("Day {}", user.current_streak)
-            };
-            
+
             // Truncate goal if it's too long for readability
             let goal_display = if user.goal.len() > 50 {
                 format!("{}...", &user.goal[..47])
@@ -218,7 +213,7 @@ impl DailyScheduler {
                 user.goal.clone()
             };
             
-            message.push_str(&format!("* {} - *{}* 🔥{}\n", user_mention, goal_display, streak_text));
+            message.push_str(&format!("* {} - {} 🔥{}\n", user_mention, goal_display, user.current_streak));
         }
         
         message.push_str("\n💪 Keep up the momentum!");
