@@ -146,11 +146,13 @@ impl DailyScheduler {
         // Post the message
         let message = channel_id.send_message(&ctx.http, CreateMessage::new().content(message_content)).await?;
         
-        // Create a thread under the message
+        // Create a thread under the message with today's date
+        let today = Utc::now().format("%m/%d/%y");
+        let thread_name = format!("Daily Check-in Responses {}", today);
         let thread = message
             .channel_id
             .create_thread(&ctx.http,
-                           CreateThread::new("Daily Check-in Responses").kind(serenity::model::channel::ChannelType::PublicThread)
+                           CreateThread::new(thread_name).kind(serenity::model::channel::ChannelType::PublicThread)
             ).await?;
         
         // Save the daily post record
