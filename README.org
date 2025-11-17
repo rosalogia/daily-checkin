@@ -1,5 +1,34 @@
 #+TITLE: Daily Check-in
 
+* Table of Contents :TOC:
+- [[#overview][Overview]]
+- [[#core-features][Core Features]]
+  - [[#daily-check-in-system][Daily Check-in System]]
+  - [[#user-registration--goal-management][User Registration & Goal Management]]
+  - [[#streak-tracking][Streak Tracking]]
+  - [[#administrative-controls][Administrative Controls]]
+- [[#user-experience-flow][User Experience Flow]]
+  - [[#registration][Registration]]
+  - [[#daily-interaction][Daily Interaction]]
+  - [[#goal-management][Goal Management]]
+  - [[#administrative-setup][Administrative Setup]]
+- [[#technical-requirements][Technical Requirements]]
+  - [[#data-storage][Data Storage]]
+  - [[#bot-permissions][Bot Permissions]]
+  - [[#streak-logic][Streak Logic]]
+- [[#commands][Commands]]
+- [[#project-structure][Project Structure]]
+  - [[#overview-1][Overview]]
+  - [[#key-design-principles][Key Design Principles]]
+  - [[#adding-new-commands][Adding New Commands]]
+- [[#development-roadmap][Development Roadmap]]
+  - [[#phase-1-foundation--basic-bot-setup][Phase 1: Foundation & Basic Bot Setup]]
+  - [[#phase-2-core-user-management][Phase 2: Core User Management]]
+  - [[#phase-3-admin-configuration][Phase 3: Admin Configuration]]
+  - [[#phase-4-daily-posting-system][Phase 4: Daily Posting System]]
+  - [[#phase-5-response-tracking--basic-streaks][Phase 5: Response Tracking & Basic Streaks]]
+  - [[#phase-6-advanced-streak-logic][Phase 6: Advanced Streak Logic]]
+
 * Overview
 
 A Discord bot designed to facilitate daily progress tracking and accountability. The bot posts daily messages pinging registered users to share their progress toward personal goals, maintains streak tracking, and provides administrative controls for server management.
@@ -7,10 +36,11 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 * Core Features
 
 ** Daily Check-in System
-- Posts automated daily messages in configured channels
+- Posts automated daily messages in configured channels at configured times
 - Pings all registered users to request progress updates
-- Creates threads under daily posts for user responses
+- Creates threads under daily posts for user responses (with date in thread name)
 - Displays current streak counts for each user in the daily post
+- 24-hour response window from daily post creation
 
 ** User Registration & Goal Management
 - Users register via slash commands with personal goals
@@ -66,20 +96,21 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 - Read Message History
 
 ** Streak Logic
-- Count consecutive days with thread responses
+- Count consecutive days with thread responses within 24-hour window
 - Reset to 0 for missed days (unless 30+ day grace period applies)
 - Grace period: Allow up to 2 missed days for streaks ≥30 days
+- Automatic streak maintenance when daily posts are created
 - Track last response date to calculate streaks accurately
 
 * Commands
 
-| Command              | Description                           | Permissions |
-|----------------------+---------------------------------------+-------------|
-| ~/register-goal~     | Register with a personal goal         | All users   |
-| ~/edit-goal~         | Modify existing goal                  | All users   |
-| ~/deregister~        | Remove from daily check-ins           | All users   |
+| Command                | Description                          | Permissions |
+|------------------------+--------------------------------------+-------------|
+| ~/register-goal~       | Register with a personal goal        | All users   |
+| ~/edit-goal~           | Modify existing goal                 | All users   |
+| ~/deregister~          | Remove from daily check-ins          | All users   |
 | ~/set-checkin-channel~ | Configure daily post channel         | Admin only  |
-| ~/set-checkin-time~  | Configure daily post time & timezone | Admin only  |
+| ~/set-checkin-time~    | Configure daily post time & timezone | Admin only  |
 
 * Project Structure
 
@@ -89,14 +120,16 @@ The bot is organized into a modular structure for maintainability and scalabilit
 #+BEGIN_SRC
 src/
 ├── main.rs              # Bot initialization and configuration
-├── handler.rs           # Discord event handler
+├── handler.rs           # Discord event handler with message processing
 ├── bot.rs               # Bot state management with shared data
 ├── data.rs              # Data structures and JSON persistence
+├── scheduler.rs         # Daily posting and streak maintenance scheduler
+├── streaks.rs           # Streak tracking and response validation logic
 ├── commands/
 │   ├── mod.rs           # Command registration and routing
 │   ├── ping.rs          # Basic ping command
 │   ├── user.rs          # User commands (register/edit/deregister goals)
-│   └── admin.rs         # Admin commands (set-checkin-channel)
+│   └── admin.rs         # Admin commands (set-checkin-channel/time)
 └── utils/
     ├── mod.rs           # Utility module exports
     ├── responses.rs     # Common response builders
@@ -158,8 +191,8 @@ src/
 - [X] Implement scheduled daily posting with cron-like functionality
 - [X] Generate daily messages with user pings and user goals
 - [X] Create threads automatically under daily posts
-- [X] Basic streak display (without complex logic)
-- [X] Automatic cleanup of old daily post data (>48 hours)
+- [X] Optimized data storage (single daily post per guild)
+- [X] Timezone-aware posting with configurable times
 
 *Deliverable: Bot posts daily messages and creates threads*
 
@@ -177,28 +210,9 @@ src/
 ** Phase 6: Advanced Streak Logic
 *Goal: Implement grace period and refined streak rules*
 
-- [ ] Implement 30+ day grace period logic
-- [ ] Handle edge cases (timezone differences, late responses)
-- [ ] Streak recovery mechanisms
-- [ ] Historical data preservation
+- [X] Implement 30+ day grace period logic
+- [X] Handle edge cases (timezone differences, late responses)
+- [X] Streak recovery mechanisms
+- [X] Historical data preservation
 
 *Deliverable: Full streak system matching requirements*
-
-** Phase 7: Polish & Production Readiness
-*Goal: Production-ready bot with robust error handling*
-
-- [ ] Comprehensive error handling and recovery
-- [ ] Improved logging and monitoring
-- [ ] Configuration validation
-- [ ] Performance optimization
-- [ ] Documentation for deployment
-
-*Deliverable: Production-ready Discord bot*
-
-* Future Considerations
-
-- Weekly/monthly summary statistics
-- Goal category tagging
-- Motivational quotes or tips in daily posts
-- Integration with external productivity tools
-- Leaderboards or community challenges

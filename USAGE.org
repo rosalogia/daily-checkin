@@ -1,0 +1,294 @@
+#+TITLE: Daily Check-in Bot Usage Guide
+
+* Table of Contents :TOC:
+- [[#overview][Overview]]
+- [[#bot-setup--installation][Bot Setup & Installation]]
+  - [[#prerequisites][Prerequisites]]
+  - [[#required-bot-permissions][Required Bot Permissions]]
+  - [[#initial-server-configuration][Initial Server Configuration]]
+- [[#user-commands][User Commands]]
+  - [[#registration--goal-management][Registration & Goal Management]]
+  - [[#re-registration][Re-registration]]
+- [[#daily-check-in-process][Daily Check-in Process]]
+  - [[#how-daily-check-ins-work][How Daily Check-ins Work]]
+  - [[#sample-daily-message][Sample Daily Message]]
+  - [[#how-to-check-in][How to Check In]]
+- [[#streak-system][Streak System]]
+  - [[#how-streaks-work][How Streaks Work]]
+  - [[#grace-period-details][Grace Period Details]]
+  - [[#response-window][Response Window]]
+  - [[#streak-display][Streak Display]]
+- [[#administrative-features][Administrative Features]]
+  - [[#admin-only-commands][Admin-Only Commands]]
+  - [[#monitoring-server-activity][Monitoring Server Activity]]
+- [[#troubleshooting][Troubleshooting]]
+  - [[#common-issues][Common Issues]]
+  - [[#permission-issues][Permission Issues]]
+- [[#best-practices][Best Practices]]
+  - [[#for-server-admins][For Server Admins]]
+  - [[#for-users][For Users]]
+  - [[#building-community][Building Community]]
+- [[#data--privacy][Data & Privacy]]
+  - [[#what-data-is-stored][What Data is Stored]]
+  - [[#what-data-is-not-stored][What Data is NOT Stored]]
+  - [[#data-persistence][Data Persistence]]
+- [[#support][Support]]
+
+* Overview
+
+This guide covers everything you need to know to set up and use the Daily Check-in Bot in your Discord server. The bot helps create accountability and track progress toward personal goals through daily check-ins with streak tracking.
+
+* Bot Setup & Installation
+
+** Prerequisites
+- A Discord server where you have administrative permissions
+- The Daily Check-in Bot invited to your server with proper permissions
+
+** Required Bot Permissions
+The bot needs these permissions to function properly:
+- Send Messages
+- Create Public Threads  
+- Mention Everyone (for daily pings)
+- Use Slash Commands
+- Read Message History
+
+** Initial Server Configuration
+
+*** 1. Set Check-in Channel
+First, configure where daily messages will be posted:
+
+#+BEGIN_EXAMPLE
+/set-checkin-channel channel:#your-channel
+#+END_EXAMPLE
+
+*Example:*
+#+BEGIN_EXAMPLE
+/set-checkin-channel channel:#daily-checkins
+#+END_EXAMPLE
+
+*** 2. Set Daily Posting Time & Timezone
+Configure when daily messages are posted:
+
+#+BEGIN_EXAMPLE
+/set-checkin-time time:HH:MM timezone:Your/Timezone
+#+END_EXAMPLE
+
+*Examples:*
+#+BEGIN_EXAMPLE
+/set-checkin-time time:09:00 timezone:America/New_York
+/set-checkin-time time:18:00 timezone:Europe/London
+/set-checkin-time time:06:30 timezone:Asia/Tokyo
+#+END_EXAMPLE
+
+*Common Timezones:*
+- =America/New_York= (Eastern Time)
+- =America/Chicago= (Central Time) 
+- =America/Denver= (Mountain Time)
+- =America/Los_Angeles= (Pacific Time)
+- =Europe/London= (GMT/BST)
+- =Europe/Berlin= (CET/CEST)
+- =Asia/Tokyo= (JST)
+- =Australia/Sydney= (AEST/AEDT)
+
+* User Commands
+
+** Registration & Goal Management
+
+*** Register for Daily Check-ins
+#+BEGIN_EXAMPLE
+/register-goal goal:"Your personal goal or objective"
+#+END_EXAMPLE
+
+*Examples:*
+#+BEGIN_EXAMPLE
+/register-goal goal:"Exercise for 30 minutes daily"
+/register-goal goal:"Read 10 pages of a book each day"
+/register-goal goal:"Practice guitar for 20 minutes"
+/register-goal goal:"Write 500 words for my novel"
+#+END_EXAMPLE
+
+*** Edit Your Goal
+#+BEGIN_EXAMPLE
+/edit-goal goal:"Your updated goal"
+#+END_EXAMPLE
+
+*Example:*
+#+BEGIN_EXAMPLE
+/edit-goal goal:"Exercise for 45 minutes daily and track calories"
+#+END_EXAMPLE
+
+*** Leave Daily Check-ins
+#+BEGIN_EXAMPLE
+/deregister
+#+END_EXAMPLE
+
+** Re-registration
+If you use =/register-goal= again after being registered:
+- Your goal will be updated
+- Your streak will be reset to 0
+- All other data (longest streak, etc.) is preserved
+
+* Daily Check-in Process
+
+** How Daily Check-ins Work
+
+1. **Daily Post**: The bot automatically posts a daily message at your configured time
+2. **Thread Creation**: A thread is created under each daily post with the date (e.g., "Daily Check-in Responses 11/17/25")
+3. **User Pings**: All registered users are pinged with their current goals and streak counts
+4. **Response Window**: Users have 24 hours from the daily post creation to respond
+5. **Streak Tracking**: Responding in the thread counts toward your daily streak
+
+** Sample Daily Message
+#+BEGIN_EXAMPLE
+🌅 **Daily Check-in Time!**
+
+Time to share your progress! Reply in this thread with your update.
+
+* @John - Exercise for 30 minutes daily 🔥12
+* @Sarah - Read 10 pages daily 🔥5  
+* @Mike - Practice guitar for 20 minutes 🔥0
+* @Lisa - Write 500 words for my novel 🔥23
+
+💪 Keep up the momentum!
+#+END_EXAMPLE
+
+** How to Check In
+Simply reply to the daily thread with any message about your progress:
+
+*Good Examples:*
+- "Completed my 30-minute run this morning!"
+- "Read 15 pages of my book during lunch"
+- "Practiced guitar scales for 25 minutes"
+- "Wrote 600 words today, feeling great!"
+- "Struggling today but got 10 minutes in"
+- "✅"
+
+*Any response counts* - there's no content validation. The bot just tracks that you participated.
+
+* Streak System
+
+** How Streaks Work
+- **New Streak**: Starts at 1 when you first check in
+- **Continue Streak**: Check in the next day to increase your streak  
+- **Broken Streak**: Miss a day and your streak resets to 0
+- **Grace Period**: For streaks ≥30 days, you get a 2-day grace period
+
+** Grace Period Details
+For established streaks (30+ days), you can miss up to 2 consecutive days without losing your streak:
+
+- **Days 1-29**: No grace period - miss a day and streak resets
+- **Days 30+**: Can miss up to 2 days total during the grace period
+- **Grace period resets**: Once you check in again after using grace days
+
+** Response Window
+- You have exactly **24 hours** from when the daily post is created to respond
+- Late responses don't count toward your streak
+- The 24-hour window is based on the daily post time, not midnight
+
+** Streak Display
+Streaks are shown in the daily post next to your name:
+- =🔥0= - No current streak (starting fresh)
+- =🔥5= - 5-day streak
+- =🔥42= - 42-day streak
+
+* Administrative Features
+
+** Admin-Only Commands
+Only server administrators can use these commands:
+
+*** Channel Configuration
+#+BEGIN_EXAMPLE
+/set-checkin-channel channel:#new-channel
+#+END_EXAMPLE
+
+*** Time & Timezone Configuration  
+#+BEGIN_EXAMPLE
+/set-checkin-time time:HH:MM timezone:Your/Timezone
+#+END_EXAMPLE
+
+** Monitoring Server Activity
+Admins can monitor:
+- Daily post creation in the configured channel
+- User participation in check-in threads
+- Streak progress over time
+
+* Troubleshooting
+
+** Common Issues
+
+*** Bot Not Posting Daily Messages
+*Check:*
+1. Channel is configured with =/set-checkin-channel=
+2. Time/timezone is configured with =/set-checkin-time=
+3. Bot has permissions in the target channel
+4. At least one user is registered
+
+*** My Response Didn't Count  
+*Possible reasons:*
+1. Responded outside the 24-hour window
+2. Responded in the wrong channel (must be in the daily thread)
+3. Already responded to this daily post cycle
+4. Not registered with =/register-goal=
+
+*** Streak Reset Unexpectedly
+*Common causes:*
+1. Missed the 24-hour deadline
+2. Grace period exceeded (for 30+ day streaks)
+3. Re-registered with =/register-goal= (resets streak)
+
+*** Wrong Timezone
+Use =/set-checkin-time= with the correct timezone. The bot posts at the configured local time for your server.
+
+** Permission Issues
+If commands aren't working, verify the bot has:
+- Use Slash Commands
+- Send Messages  
+- Create Public Threads
+- Read Message History
+
+* Best Practices
+
+** For Server Admins
+- Choose a consistent daily time that works for most users
+- Pick a dedicated channel for daily check-ins
+- Consider your server's primary timezone
+- Monitor participation and adjust timing if needed
+
+** For Users
+- Set realistic, achievable daily goals
+- Check in consistently around the same time
+- Don't worry about perfect responses - any message counts
+- Use the thread to motivate others with your progress
+- Update your goal with =/edit-goal= as you evolve
+
+** Building Community
+- Celebrate others' streaks and milestones
+- Share specific progress details for motivation
+- Support users who are struggling or restarting
+- Use the daily thread as accountability partnership
+
+* Data & Privacy
+
+** What Data is Stored
+- Your Discord user ID
+- Your personal goal text
+- Check-in dates and streak information
+- Server configuration (channel, timezone, posting time)
+
+** What Data is NOT Stored
+- The content of your daily responses
+- Personal information beyond what you share in goals
+- Message history or conversation data
+
+** Data Persistence
+- All data is stored locally by the bot operator
+- Re-registration preserves historical data but resets current streak
+- Deregistration marks you as inactive but preserves data
+
+* Support
+
+If you encounter issues or have questions:
+1. Check this usage guide first
+2. Verify bot permissions in your server
+3. Ensure proper configuration with admin commands
+4. Contact your server administrator for configuration issues
