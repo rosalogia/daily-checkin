@@ -8,7 +8,7 @@ use crate::{
     data::ServerConfig,
     utils::{
         command_helpers::{get_guild_id, get_channel_option, get_string_option, is_admin, validate_timezone, validate_time_format},
-        responses::{success_response, error_response},
+        responses::{default_response},
     },
 };
 use chrono::Utc;
@@ -36,7 +36,7 @@ pub async fn set_channel(
     
     // Check admin permissions
     if !is_admin(ctx, command).await? {
-        let response = error_response("This command requires administrator permissions.");
+        let response = default_response("This command requires administrator permissions.");
         command.create_response(&ctx.http, response).await?;
         return Ok(());
     }
@@ -72,7 +72,7 @@ pub async fn set_channel(
         // Persist to disk
         if let Err(e) = bot_data.save().await {
             error!("Failed to save data after setting checkin channel: {}", e);
-            let response = error_response("Failed to save configuration. Please try again.");
+            let response = default_response("Failed to save configuration. Please try again.");
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
@@ -80,7 +80,7 @@ pub async fn set_channel(
     
     debug!("Successfully configured checkin channel {} for guild {}", channel_id, guild_id);
     
-    let response = success_response(&format!("Daily check-in channel has been set to <#{}>!", channel_id));
+    let response = default_response(&format!("Daily check-in channel has been set to <#{}>!", channel_id));
     command.create_response(&ctx.http, response).await?;
     Ok(())
 }
@@ -115,7 +115,7 @@ pub async fn set_checkin_time(
     
     // Check admin permissions
     if !is_admin(ctx, command).await? {
-        let response = error_response("This command requires administrator permissions.");
+        let response = default_response("This command requires administrator permissions.");
         command.create_response(&ctx.http, response).await?;
         return Ok(());
     }
@@ -129,7 +129,7 @@ pub async fn set_checkin_time(
         Ok(time) => time,
         Err(e) => {
             error!("Invalid time format: {}", e);
-            let response = error_response("Invalid time format. Please use HH:MM format (e.g., '09:00', '13:30').");
+            let response = default_response("Invalid time format. Please use HH:MM format (e.g., '09:00', '13:30').");
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
@@ -141,7 +141,7 @@ pub async fn set_checkin_time(
             Ok(tz) => tz,
             Err(e) => {
                 error!("Invalid timezone: {}", e);
-                let response = error_response("Invalid timezone. Use format like 'America/New_York', 'Europe/London', or 'UTC'.");
+                let response = default_response("Invalid timezone. Use format like 'America/New_York', 'Europe/London', or 'UTC'.");
                 command.create_response(&ctx.http, response).await?;
                 return Ok(());
             }
@@ -181,7 +181,7 @@ pub async fn set_checkin_time(
         // Persist to disk
         if let Err(e) = bot_data.save().await {
             error!("Failed to save data after setting checkin time: {}", e);
-            let response = error_response("Failed to save configuration. Please try again.");
+            let response = default_response("Failed to save configuration. Please try again.");
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
@@ -190,9 +190,9 @@ pub async fn set_checkin_time(
     debug!("Successfully configured checkin time {} {} for guild {}", validated_time, validated_timezone, guild_id);
     
     let response = if command.data.options.iter().any(|opt| opt.name == "timezone") {
-        success_response(&format!("Daily check-in time has been set to {} {} timezone!", validated_time, validated_timezone))
+        default_response(&format!("Daily check-in time has been set to {} {} timezone!", validated_time, validated_timezone))
     } else {
-        success_response(&format!("Daily check-in time has been set to {}!", validated_time))
+        default_response(&format!("Daily check-in time has been set to {}!", validated_time))
     };
     command.create_response(&ctx.http, response).await?;
     Ok(())

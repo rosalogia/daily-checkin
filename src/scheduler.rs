@@ -198,8 +198,8 @@ impl DailyScheduler {
         let active_users: Vec<_> = users.values().filter(|user| user.is_active).collect();
         
         let mut embed = CreateEmbed::new()
-            .title("🌅 Daily Check-in Time!")
-            .description("Time to share your progress! Reply in this thread with your update.")
+            .title("Daily Check-in")
+            .description("Update this thread with today's progress!")
             .color(0x00ff88); // Green color for daily check-ins
         
         if active_users.is_empty() {
@@ -223,13 +223,12 @@ impl DailyScheduler {
                 user.goal.clone()
             };
             
-            user_list.push_str(&format!("• {} - {} 🔥{}\n", user_mention, goal_display, user.current_streak));
+            user_list.push_str(&format!("• {} - **{}** 🔥**{}**\n", user_mention, goal_display, user.current_streak));
         }
         
         embed = embed
-            .field("📋 Today's Participants", user_list, false)
-            .footer(serenity::builder::CreateEmbedFooter::new("💪 Keep up the momentum!"));
-        
+            .field("Participants", user_list, false);
+
         Ok(embed)
     }
 

@@ -67,7 +67,7 @@ pub async fn register_goal(
 
     // Validate goal length
     if goal.len() > 500 {
-        let response = responses::error_response("Goal must be 500 characters or less.");
+        let response = responses::default_response("Goal must be 500 characters or less.");
         command.create_response(&ctx.http, response).await?;
         return Ok(());
     }
@@ -114,7 +114,7 @@ pub async fn register_goal(
         
         if let Err(e) = data_write.save().await {
             error!("Failed to save user data: {}", e);
-            let response = responses::error_response("Failed to save your goal. Please try again.");
+            let response = responses::default_response("Failed to save your goal. Please try again.");
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
@@ -124,10 +124,10 @@ pub async fn register_goal(
     let message = if is_update {
         format!("Your goal has been updated to: \"{}\"", goal)
     } else {
-        format!("🎯 Welcome! Your goal has been set to: \"{}\"\n\nYou'll be pinged for daily check-ins to track your progress!", goal)
+        format!("Your goal has been set to: **{}**\n\nYou'll be pinged for daily check-ins to track your progress!", goal)
     };
 
-    let response = responses::success_response(&message);
+    let response = responses::default_response(&message);
     command.create_response(&ctx.http, response).await?;
 
     info!("Successfully {} goal for user {} in guild {}", 
@@ -175,13 +175,13 @@ pub async fn deregister(
         
         if let Err(e) = data_write.save().await {
             error!("Failed to save user data: {}", e);
-            let response = responses::error_response("Failed to remove your registration. Please try again.");
+            let response = responses::default_response("Failed to remove your registration. Please try again.");
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
 
         let message = format!("You have been removed from daily check-ins. Your streak was {} days. Use `/register-goal` to re-register later if you'd like.", current_streak);
-        let response = responses::success_response(&message);
+        let response = responses::default_response(&message);
         command.create_response(&ctx.http, response).await?;
 
         info!("Successfully deactivated user {} in guild {}", user_id, guild_id);
@@ -222,7 +222,7 @@ pub async fn stats(
             } else {
                 "That user is not currently registered for daily check-ins."
             };
-            let response = responses::error_response(msg);
+            let response = responses::default_response(msg);
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
