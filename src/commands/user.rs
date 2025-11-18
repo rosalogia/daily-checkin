@@ -1,5 +1,5 @@
 use serenity::{
-    builder::{CreateCommand, CreateCommandOption, CreateInteractionResponse, CreateInteractionResponseMessage},
+    builder::{CreateCommand, CreateCommandOption},
     model::application::{CommandInteraction, CommandOptionType},
     prelude::*,
 };
@@ -38,6 +38,11 @@ pub fn edit_goal_command() -> CreateCommand {
 pub fn deregister_command() -> CreateCommand {
     CreateCommand::new("deregister")
         .description("Remove yourself from daily check-ins")
+}
+
+pub fn stats_command() -> CreateCommand {
+    CreateCommand::new("stats")
+        .description("View your goal, streaks, and check-in status")
 }
 
 pub async fn register_goal(
@@ -174,5 +179,82 @@ pub async fn deregister(
         info!("Successfully deactivated user {} in guild {}", user_id, guild_id);
     }
 
+    Ok(())
+}
+
+pub async fn stats(
+    ctx: &Context,
+    command: &CommandInteraction,
+    data: SharedBotData,
+) -> serenity::Result<()> {
+    use chrono::Duration;
+
+    let user_id = command_helpers::get_user_id(command);
+    let guild_id = command_helpers::get_guild_id(command)?;
+
+    info!("Stats command executed by user {}", user_id);
+
+    // Get user data
+    let data_read = data.read().await;
+
+    let user = match data_read.get_user(&guild_id, &user_id) {
+        Some(user) if user.is_active => user,
+        Some(_) => {
+            let response = responses::error_response("You're not currently registered for daily check-ins. Use `/register-goal` to get started!");
+            command.create_response(&ctx.http, response).await?;
+            return Ok(());
+        }
+        None => {
+            let response = responses::error_response("You're not currently registered for daily check-ins. Use `/register-goal` to get started!");
+            command.create_response(&ctx.http, response).await?;
+            return Ok(());
+        }
+    };
+
+    // Build the stats message
+    let mut message = String::from("📊 **Your Stats**\n\n");
+
+    // Goal
+    message.push_str(&format!("**Goal:** {}\n\n", user.goal));
+
+    // Streaks
+    message.push_str(&format!("**Current Streak:** 🔥 {} days\n", user.current_streak));
+    message.push_str(&format!("**Longest Streak:** 🏆 {} days\n\n", user.longest_streak));
+
+    // Check-in status
+    if let Some(daily_post) = data_read.daily_posts.get(&guild_id) {
+        let post_date = daily_post.posted_at.date_naive();
+        let now = Utc::now();
+
+        // Check if user has checked in today
+        let has_checked_in_today = user.last_checkin_date
+            .map(|last_checkin| last_checkin >= post_date)
+            .unwrap_or(false);
+
+        if has_checked_in_today {
+            message.push_str("**Today's Check-in:** ✅ Complete\n");
+        } else {
+            // Calculate time remaining
+            let deadline = daily_post.posted_at + Duration::hours(24);
+            let time_remaining = deadline.signed_duration_since(now);
+
+            if time_remaining.num_seconds() > 0 {
+                let hours = time_remaining.num_hours();
+                let minutes = (time_remaining.num_minutes() % 60).abs();
+
+                message.push_str(&format!("**Today's Check-in:** ⏳ Not yet complete\n"));
+                message.push_str(&format!("**Time Remaining:** {} hours, {} minutes\n", hours, minutes));
+            } else {
+                message.push_str("**Today's Check-in:** ❌ Missed (deadline passed)\n");
+            }
+        }
+    } else {
+        message.push_str("**Today's Check-in:** No daily post yet for today\n");
+    }
+
+    let response = responses::info_response(&message);
+    command.create_response(&ctx.http, response).await?;
+
+    info!("Successfully displayed stats for user {} in guild {}", user_id, guild_id);
     Ok(())
 }

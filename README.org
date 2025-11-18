@@ -109,6 +109,7 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 | ~/register-goal~       | Register with a personal goal        | All users   |
 | ~/edit-goal~           | Modify existing goal                 | All users   |
 | ~/deregister~          | Remove from daily check-ins          | All users   |
+| ~/stats~               | View your goal, streaks, and status  | All users   |
 | ~/set-checkin-channel~ | Configure daily post channel         | Admin only  |
 | ~/set-checkin-time~    | Configure daily post time & timezone | Admin only  |
 

@@ -14,6 +14,7 @@ pub async fn register_commands(ctx: &Context) -> serenity::Result<()> {
         user::register_goal_command(),
         user::edit_goal_command(),
         user::deregister_command(),
+        user::stats_command(),
         admin::set_channel_command(),
         admin::set_checkin_time_command(),
     ];
@@ -33,6 +34,7 @@ pub async fn handle_command(
             "register-goal" => user::register_goal(ctx, command, data).await?,
             "edit-goal" => user::edit_goal(ctx, command, data).await?,
             "deregister" => user::deregister(ctx, command, data).await?,
+            "stats" => user::stats(ctx, command, data).await?,
             "set-checkin-channel" => admin::set_channel(ctx, command, data).await?,
             "set-checkin-time" => admin::set_checkin_time(ctx, command, data).await?,
             _ => {

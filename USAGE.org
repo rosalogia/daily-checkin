@@ -122,6 +122,30 @@ Configure when daily messages are posted:
 /deregister
 #+END_EXAMPLE
 
+*** View Your Stats
+#+BEGIN_EXAMPLE
+/stats
+#+END_EXAMPLE
+
+This displays:
+- Your current goal
+- Current streak (consecutive check-ins)
+- Longest streak ever achieved
+- Today's check-in status (completed, time remaining, or missed)
+
+*Example output:*
+#+BEGIN_EXAMPLE
+📊 **Your Stats**
+
+**Goal:** Exercise for 30 minutes daily
+
+**Current Streak:** 🔥 12 days
+**Longest Streak:** 🏆 15 days
+
+**Today's Check-in:** ⏳ Not yet complete
+**Time Remaining:** 8 hours, 45 minutes
+#+END_EXAMPLE
+
 ** Re-registration
 If you use =/register-goal= again after being registered:
 - Your goal will be updated
