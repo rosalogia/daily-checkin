@@ -42,7 +42,15 @@ pub fn deregister_command() -> CreateCommand {
 
 pub fn stats_command() -> CreateCommand {
     CreateCommand::new("stats")
-        .description("View your goal, streaks, and check-in status")
+        .description("View goal, streaks, and check-in status for yourself or another user")
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::User,
+                "user",
+                "The user to view stats for (defaults to yourself)"
+            )
+            .required(false)
+        )
 }
 
 pub async fn register_goal(
@@ -188,31 +196,56 @@ pub async fn stats(
     data: SharedBotData,
 ) -> serenity::Result<()> {
     use chrono::Duration;
+    use serenity::model::application::CommandDataOptionValue;
 
-    let user_id = command_helpers::get_user_id(command);
     let guild_id = command_helpers::get_guild_id(command)?;
 
-    info!("Stats command executed by user {}", user_id);
+    // Check if a user parameter was provided, otherwise use the command user
+    let (target_user_id, is_self) = if let Some(option) = command.data.options.iter().find(|opt| opt.name == "user") {
+        match &option.value {
+            CommandDataOptionValue::User(user_id) => (user_id.to_string(), *user_id == command.user.id),
+            _ => (command_helpers::get_user_id(command), true),
+        }
+    } else {
+        (command_helpers::get_user_id(command), true)
+    };
+
+    info!("Stats command executed by user {} for user {}", command_helpers::get_user_id(command), target_user_id);
 
     // Get user data
     let data_read = data.read().await;
 
-    let user = match data_read.get_user(&guild_id, &user_id) {
+    let user = match data_read.get_user(&guild_id, &target_user_id) {
         Some(user) if user.is_active => user,
         Some(_) => {
-            let response = responses::error_response("You're not currently registered for daily check-ins. Use `/register-goal` to get started!");
+            let msg = if is_self {
+                "You're not currently registered for daily check-ins. Use `/register-goal` to get started!"
+            } else {
+                "That user is not currently registered for daily check-ins."
+            };
+            let response = responses::error_response(msg);
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
         None => {
-            let response = responses::error_response("You're not currently registered for daily check-ins. Use `/register-goal` to get started!");
+            let msg = if is_self {
+                "You're not currently registered for daily check-ins. Use `/register-goal` to get started!"
+            } else {
+                "That user is not currently registered for daily check-ins."
+            };
+            let response = responses::error_response(msg);
             command.create_response(&ctx.http, response).await?;
             return Ok(());
         }
     };
 
     // Build the stats message
-    let mut message = String::from("📊 **Your Stats**\n\n");
+    let header = if is_self {
+        "📊 **Your Stats**\n\n".to_string()
+    } else {
+        format!("📊 **Stats for <@{}>**\n\n", target_user_id)
+    };
+    let mut message = header;
 
     // Goal
     message.push_str(&format!("**Goal:** {}\n\n", user.goal));
@@ -255,6 +288,6 @@ pub async fn stats(
     let response = responses::info_response(&message);
     command.create_response(&ctx.http, response).await?;
 
-    info!("Successfully displayed stats for user {} in guild {}", user_id, guild_id);
+    info!("Successfully displayed stats for user {} in guild {}", target_user_id, guild_id);
     Ok(())
 }

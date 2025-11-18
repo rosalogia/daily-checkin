@@ -125,15 +125,18 @@ Configure when daily messages are posted:
 *** View Your Stats
 #+BEGIN_EXAMPLE
 /stats
+/stats user:@username
 #+END_EXAMPLE
 
+View stats for yourself (no parameters) or for another user (by specifying the user parameter).
+
 This displays:
-- Your current goal
+- Personal goal
 - Current streak (consecutive check-ins)
 - Longest streak ever achieved
 - Today's check-in status (completed, time remaining, or missed)
 
-*Example output:*
+*Example output (viewing your own stats):*
 #+BEGIN_EXAMPLE
 📊 **Your Stats**
 
@@ -144,6 +147,18 @@ This displays:
 
 **Today's Check-in:** ⏳ Not yet complete
 **Time Remaining:** 8 hours, 45 minutes
+#+END_EXAMPLE
+
+*Example output (viewing another user's stats):*
+#+BEGIN_EXAMPLE
+📊 **Stats for @John**
+
+**Goal:** Read 10 pages of a book each day
+
+**Current Streak:** 🔥 45 days
+**Longest Streak:** 🏆 45 days
+
+**Today's Check-in:** ✅ Complete
 #+END_EXAMPLE
 
 ** Re-registration
