@@ -155,6 +155,9 @@ impl DailyScheduler {
                            CreateThread::new(thread_name).kind(serenity::model::channel::ChannelType::PublicThread)
             ).await?;
         
+        // Send a ping message in the thread to notify all participants
+        self.send_thread_pings(ctx, thread.id, guild_id).await?;
+        
         // Save the daily post record
         {
             let mut data = self.data.write().await;
@@ -228,5 +231,37 @@ impl DailyScheduler {
             .footer(serenity::builder::CreateEmbedFooter::new("Keep up the momentum!"));
         
         Ok(embed)
+    }
+
+    /// Send ping message to thread to notify all participants
+    async fn send_thread_pings(
+        &self,
+        ctx: &Context,
+        thread_id: serenity::model::id::ChannelId,
+        guild_id: GuildId,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let data = self.data.read().await;
+        let guild_id_str = guild_id.to_string();
+        
+        // Get users for this guild
+        let empty_map = std::collections::HashMap::new();
+        let users = data.users.get(&guild_id_str).unwrap_or(&empty_map);
+        
+        // Filter active users and collect their mentions
+        let active_users: Vec<_> = users.values().filter(|user| user.is_active).collect();
+        
+        if !active_users.is_empty() {
+            let mentions: Vec<String> = active_users
+                .iter()
+                .map(|user| format!("<@{}>", user.user_id))
+                .collect();
+            
+            let ping_message = format!("Time to check in!\n{}", mentions.join("\n"));
+            
+            // Send the ping message to the thread
+            thread_id.send_message(&ctx.http, CreateMessage::new().content(ping_message)).await?;
+        }
+        
+        Ok(())
     }
 }
