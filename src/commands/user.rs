@@ -264,7 +264,7 @@ pub async fn stats(
                 // Use Discord's relative timestamp format for dynamic countdown
                 let deadline_unix = deadline.timestamp();
                 message.push_str(&format!("**Today's Check-in:** ⏳ Not yet complete\n"));
-                message.push_str(&format!("**Time Remaining:** <t:{}:R>\n", deadline_unix));
+                message.push_str(&format!("**Streak expires:** <t:{}:R>\n", deadline_unix));
             } else {
                 message.push_str("**Today's Check-in:** ❌ Missed (deadline passed)\n");
             }
