@@ -1,5 +1,5 @@
 use serenity::{
-    builder::{CreateCommand, CreateCommandOption, CreateInteractionResponse, CreateInteractionResponseMessage},
+    builder::{CreateCommand, CreateCommandOption},
     model::application::{CommandInteraction, CommandOptionType},
     prelude::*,
 };
@@ -38,6 +38,19 @@ pub fn edit_goal_command() -> CreateCommand {
 pub fn deregister_command() -> CreateCommand {
     CreateCommand::new("deregister")
         .description("Remove yourself from daily check-ins")
+}
+
+pub fn stats_command() -> CreateCommand {
+    CreateCommand::new("stats")
+        .description("View goal, streaks, and check-in status for yourself or another user")
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::User,
+                "user",
+                "The user to view stats for (defaults to yourself)"
+            )
+            .required(false)
+        )
 }
 
 pub async fn register_goal(
@@ -174,5 +187,95 @@ pub async fn deregister(
         info!("Successfully deactivated user {} in guild {}", user_id, guild_id);
     }
 
+    Ok(())
+}
+
+pub async fn stats(
+    ctx: &Context,
+    command: &CommandInteraction,
+    data: SharedBotData,
+) -> serenity::Result<()> {
+    use chrono::Duration;
+    use serenity::model::application::CommandDataOptionValue;
+
+    let guild_id = command_helpers::get_guild_id(command)?;
+
+    // Check if a user parameter was provided, otherwise use the command user
+    let (target_user_id, is_self) = command.data.options.iter()
+        .find(|opt| opt.name == "user")
+        .and_then(|opt| match &opt.value {
+            CommandDataOptionValue::User(user_id) => Some((user_id.to_string(), *user_id == command.user.id)),
+            _ => None,
+        })
+        .unwrap_or_else(|| (command_helpers::get_user_id(command), true));
+
+    info!("Stats command executed by user {} for user {}", command_helpers::get_user_id(command), target_user_id);
+
+    // Get user data
+    let data_read = data.read().await;
+
+    let user = match data_read.get_user(&guild_id, &target_user_id) {
+        Some(user) if user.is_active => user,
+        _ => {
+            let msg = if is_self {
+                "You're not currently registered for daily check-ins. Use `/register-goal` to get started!"
+            } else {
+                "That user is not currently registered for daily check-ins."
+            };
+            let response = responses::error_response(msg);
+            command.create_response(&ctx.http, response).await?;
+            return Ok(());
+        }
+    };
+
+    // Build the stats message
+    let header = if is_self {
+        "📊 **Your Stats**\n\n".to_string()
+    } else {
+        format!("📊 **Stats for <@{}>**\n\n", target_user_id)
+    };
+    let mut message = header;
+
+    // Goal
+    message.push_str(&format!("**Goal:** {}\n\n", user.goal));
+
+    // Streaks
+    message.push_str(&format!("**Current Streak:** 🔥 {} days\n", user.current_streak));
+    message.push_str(&format!("**Longest Streak:** 🏆 {} days\n\n", user.longest_streak));
+
+    // Check-in status
+    if let Some(daily_post) = data_read.daily_posts.get(&guild_id) {
+        let post_date = daily_post.posted_at.date_naive();
+        let now = Utc::now();
+
+        // Check if user has checked in today
+        let has_checked_in_today = user.last_checkin_date
+            .map(|last_checkin| last_checkin >= post_date)
+            .unwrap_or(false);
+
+        if has_checked_in_today {
+            message.push_str("**Today's Check-in:** ✅ Complete\n");
+        } else {
+            // Calculate time remaining
+            let deadline = daily_post.posted_at + Duration::hours(24);
+            let time_remaining = deadline.signed_duration_since(now);
+
+            if time_remaining.num_seconds() > 0 {
+                // Use Discord's relative timestamp format for dynamic countdown
+                let deadline_unix = deadline.timestamp();
+                message.push_str(&format!("**Today's Check-in:** ⏳ Not yet complete\n"));
+                message.push_str(&format!("**Time Remaining:** <t:{}:R>\n", deadline_unix));
+            } else {
+                message.push_str("**Today's Check-in:** ❌ Missed (deadline passed)\n");
+            }
+        }
+    } else {
+        message.push_str("**Today's Check-in:** No daily post yet for today\n");
+    }
+
+    let response = responses::info_response(&message);
+    command.create_response(&ctx.http, response).await?;
+
+    info!("Successfully displayed stats for user {} in guild {}", target_user_id, guild_id);
     Ok(())
 }

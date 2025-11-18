@@ -104,13 +104,14 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 
 * Commands
 
-| Command                | Description                          | Permissions |
-|------------------------+--------------------------------------+-------------|
-| ~/register-goal~       | Register with a personal goal        | All users   |
-| ~/edit-goal~           | Modify existing goal                 | All users   |
-| ~/deregister~          | Remove from daily check-ins          | All users   |
-| ~/set-checkin-channel~ | Configure daily post channel         | Admin only  |
-| ~/set-checkin-time~    | Configure daily post time & timezone | Admin only  |
+| Command                | Description                                      | Permissions |
+|------------------------+--------------------------------------------------+-------------|
+| ~/register-goal~       | Register with a personal goal                    | All users   |
+| ~/edit-goal~           | Modify existing goal                             | All users   |
+| ~/deregister~          | Remove from daily check-ins                      | All users   |
+| ~/stats~               | View goal, streaks, and status (self or others)  | All users   |
+| ~/set-checkin-channel~ | Configure daily post channel                     | Admin only  |
+| ~/set-checkin-time~    | Configure daily post time & timezone             | Admin only  |
 
 * Project Structure
 
