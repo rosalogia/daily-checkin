@@ -1,0 +1,27 @@
+[Unit]
+Description=Daily Check-in Discord Bot
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=daily-checkin-bot
+Group=daily-checkin-bot
+WorkingDirectory=/var/lib/daily-checkin-bot
+ExecStart=/usr/local/bin/daily-checkin-bot
+EnvironmentFile=/etc/default/daily-checkin-bot
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=daily-checkin-bot
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/daily-checkin-bot /var/log/daily-checkin-bot
+
+[Install]
+WantedBy=multi-user.target
