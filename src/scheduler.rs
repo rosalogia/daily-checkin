@@ -2,7 +2,7 @@ use crate::{bot::SharedBotData, data::DailyPost, streaks::StreakManager};
 use chrono::{DateTime, Utc, NaiveTime, Timelike};
 use chrono_tz::Tz;
 use serenity::{
-    builder::{CreateMessage, CreateThread},
+    builder::{CreateMessage, CreateThread, CreateEmbed},
     model::id::{ChannelId, GuildId},
     prelude::*,
 };
@@ -140,11 +140,11 @@ impl DailyScheduler {
         guild_id: GuildId,
         channel_id: ChannelId,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Generate the daily message content
-        let message_content = self.generate_daily_message(guild_id).await?;
+        // Generate the daily message embed
+        let embed = self.generate_daily_embed(guild_id).await?;
         
         // Post the message
-        let message = channel_id.send_message(&ctx.http, CreateMessage::new().content(message_content)).await?;
+        let message = channel_id.send_message(&ctx.http, CreateMessage::new().add_embed(embed)).await?;
         
         // Create a thread under the message with today's date
         let today = Utc::now().format("%m/%d/%y");
@@ -179,11 +179,11 @@ impl DailyScheduler {
         Ok(())
     }
 
-    /// Generate the daily message content with user pings, goals, and streaks
-    async fn generate_daily_message(
+    /// Generate the daily message embed with user pings, goals, and streaks
+    async fn generate_daily_embed(
         &self,
         guild_id: GuildId,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<CreateEmbed, Box<dyn std::error::Error + Send + Sync>> {
         let data = self.data.read().await;
         let guild_id_str = guild_id.to_string();
         
@@ -194,17 +194,22 @@ impl DailyScheduler {
         // Filter active users
         let active_users: Vec<_> = users.values().filter(|user| user.is_active).collect();
         
-        if active_users.is_empty() {
-            return Ok("🌅 **Daily Check-in Time!**\n\nNo registered users yet. Use `/register-goal` to join!".to_string());
-        }
+        let mut embed = CreateEmbed::new()
+            .title("🌅 Daily Check-in Time!")
+            .description("Time to share your progress! Reply in this thread with your update.")
+            .color(0x00ff88); // Green color for daily check-ins
         
-        // Build the message
-        let mut message = String::from("🌅 **Daily Check-in Time!**\n\nTime to share your progress! Reply in this thread with your update.\n\n");
+        if active_users.is_empty() {
+            embed = embed.field("No Users Registered", "Use `/register-goal` to join!", false);
+            return Ok(embed);
+        }
         
         // Sort users by streak (highest first) for motivation
         let mut sorted_users = active_users;
         sorted_users.sort_by(|a, b| b.current_streak.cmp(&a.current_streak));
         
+        // Build user list for the field
+        let mut user_list = String::new();
         for user in sorted_users {
             let user_mention = format!("<@{}>", user.user_id);
 
@@ -215,11 +220,13 @@ impl DailyScheduler {
                 user.goal.clone()
             };
             
-            message.push_str(&format!("* {} - {} 🔥{}\n", user_mention, goal_display, user.current_streak));
+            user_list.push_str(&format!("• {} - {} 🔥{}\n", user_mention, goal_display, user.current_streak));
         }
         
-        message.push_str("\n💪 Keep up the momentum!");
+        embed = embed
+            .field("📋 Today's Participants", user_list, false)
+            .footer(serenity::builder::CreateEmbedFooter::new("💪 Keep up the momentum!"));
         
-        Ok(message)
+        Ok(embed)
     }
 }

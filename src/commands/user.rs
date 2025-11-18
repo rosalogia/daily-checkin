@@ -1,5 +1,5 @@
 use serenity::{
-    builder::{CreateCommand, CreateCommandOption},
+    builder::{CreateCommand, CreateCommandOption, CreateEmbed},
     model::application::{CommandInteraction, CommandOptionType},
     prelude::*,
 };
@@ -228,23 +228,32 @@ pub async fn stats(
         }
     };
 
-    // Build the stats message
-    let header = if is_self {
-        "📊 **Your Stats**\n\n".to_string()
+    // Build the stats embed
+    let title = if is_self {
+        "📊 Your Stats"
     } else {
-        format!("📊 **Stats for <@{}>**\n\n", target_user_id)
+        "📊 User Stats"
     };
-    let mut message = header;
 
-    // Goal
-    message.push_str(&format!("**Goal:** {}\n\n", user.goal));
+    let mut embed = CreateEmbed::new()
+        .title(title)
+        .color(0x00d4ff); // Light blue color
 
-    // Streaks
-    message.push_str(&format!("**Current Streak:** 🔥 {} days\n", user.current_streak));
-    message.push_str(&format!("**Longest Streak:** 🏆 {} days\n\n", user.longest_streak));
+    // Add user mention if not self
+    if !is_self {
+        embed = embed.description(format!("<@{}>", target_user_id));
+    }
 
-    // Check-in status
-    if let Some(daily_post) = data_read.daily_posts.get(&guild_id) {
+    // Goal field
+    embed = embed.field("🎯 Goal", &user.goal, false);
+
+    // Streak fields
+    embed = embed
+        .field("🔥 Current Streak", format!("{} days", user.current_streak), true)
+        .field("🏆 Longest Streak", format!("{} days", user.longest_streak), true);
+
+    // Check-in status field
+    let checkin_status = if let Some(daily_post) = data_read.daily_posts.get(&guild_id) {
         let post_date = daily_post.posted_at.date_naive();
         let now = Utc::now();
 
@@ -254,26 +263,26 @@ pub async fn stats(
             .unwrap_or(false);
 
         if has_checked_in_today {
-            message.push_str("**Today's Check-in:** ✅ Complete\n");
+            "✅ Complete".to_string()
         } else {
             // Calculate time remaining
             let deadline = daily_post.posted_at + Duration::hours(24);
             let time_remaining = deadline.signed_duration_since(now);
 
             if time_remaining.num_seconds() > 0 {
-                // Use Discord's relative timestamp format for dynamic countdown
                 let deadline_unix = deadline.timestamp();
-                message.push_str(&format!("**Today's Check-in:** ⏳ Not yet complete\n"));
-                message.push_str(&format!("**Streak expires:** <t:{}:R>\n", deadline_unix));
+                format!("⏳ Not yet complete\n**Streak expires:** <t:{}:R>", deadline_unix)
             } else {
-                message.push_str("**Today's Check-in:** ❌ Missed (deadline passed)\n");
+                "❌ Missed (deadline passed)".to_string()
             }
         }
     } else {
-        message.push_str("**Today's Check-in:** No daily post yet for today\n");
-    }
+        "No daily post yet for today".to_string()
+    };
 
-    let response = responses::info_response(&message);
+    embed = embed.field("📅 Today's Check-in", checkin_status, false);
+
+    let response = responses::embed_response(embed);
     command.create_response(&ctx.http, response).await?;
 
     info!("Successfully displayed stats for user {} in guild {}", target_user_id, guild_id);
