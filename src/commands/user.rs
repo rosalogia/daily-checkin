@@ -124,7 +124,7 @@ pub async fn register_goal(
     let message = if is_update {
         format!("Your goal has been updated to: \"{}\"", goal)
     } else {
-        format!("Welcome! Your goal has been set to: \"{}\"\n\nYou'll be pinged for daily check-ins to track your progress!", goal)
+        format!("🎯 Welcome! Your goal has been set to: \"{}\"\n\nYou'll be pinged for daily check-ins to track your progress!", goal)
     };
 
     let response = responses::success_response(&message);
@@ -230,9 +230,9 @@ pub async fn stats(
 
     // Build the stats embed
     let title = if is_self {
-        "Your Stats"
+        "📊 Your Stats"
     } else {
-        "User Stats"
+        "📊 User Stats"
     };
 
     let mut embed = CreateEmbed::new()
@@ -245,12 +245,12 @@ pub async fn stats(
     }
 
     // Goal field
-    embed = embed.field("Goal", &user.goal, false);
+    embed = embed.field("🎯 Goal", &user.goal, false);
 
     // Streak fields
     embed = embed
-        .field("Current Streak", format!("{} days", user.current_streak), true)
-        .field("Longest Streak", format!("{} days", user.longest_streak), true);
+        .field("🔥 Current Streak", format!("{} days", user.current_streak), true)
+        .field("🏆 Longest Streak", format!("{} days", user.longest_streak), true);
 
     // Check-in status field
     let checkin_status = if let Some(daily_post) = data_read.daily_posts.get(&guild_id) {
@@ -263,7 +263,7 @@ pub async fn stats(
             .unwrap_or(false);
 
         if has_checked_in_today {
-            "Complete".to_string()
+            "✅ Complete".to_string()
         } else {
             // Calculate time remaining
             let deadline = daily_post.posted_at + Duration::hours(24);
@@ -271,16 +271,16 @@ pub async fn stats(
 
             if time_remaining.num_seconds() > 0 {
                 let deadline_unix = deadline.timestamp();
-                format!("Not yet complete\n**Streak expires:** <t:{}:R>", deadline_unix)
+                format!("⏳ Not yet complete\n**Streak expires:** <t:{}:R>", deadline_unix)
             } else {
-                "Missed (deadline passed)".to_string()
+                "❌ Missed (deadline passed)".to_string()
             }
         }
     } else {
         "No daily post yet for today".to_string()
     };
 
-    embed = embed.field("Today's Check-in", checkin_status, false);
+    embed = embed.field("📅 Today's Check-in", checkin_status, false);
 
     let response = responses::embed_response(embed);
     command.create_response(&ctx.http, response).await?;
