@@ -146,8 +146,10 @@ This displays:
 **Longest Streak:** 🏆 15 days
 
 **Today's Check-in:** ⏳ Not yet complete
-**Time Remaining:** 8 hours, 45 minutes
+**Time Remaining:** in 8 hours
 #+END_EXAMPLE
+
+Note: Time remaining uses Discord's dynamic timestamp feature, so it updates automatically and displays relative to the viewer's local time.
 
 *Example output (viewing another user's stats):*
 #+BEGIN_EXAMPLE

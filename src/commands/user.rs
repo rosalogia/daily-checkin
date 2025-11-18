@@ -201,14 +201,13 @@ pub async fn stats(
     let guild_id = command_helpers::get_guild_id(command)?;
 
     // Check if a user parameter was provided, otherwise use the command user
-    let (target_user_id, is_self) = if let Some(option) = command.data.options.iter().find(|opt| opt.name == "user") {
-        match &option.value {
-            CommandDataOptionValue::User(user_id) => (user_id.to_string(), *user_id == command.user.id),
-            _ => (command_helpers::get_user_id(command), true),
-        }
-    } else {
-        (command_helpers::get_user_id(command), true)
-    };
+    let (target_user_id, is_self) = command.data.options.iter()
+        .find(|opt| opt.name == "user")
+        .and_then(|opt| match &opt.value {
+            CommandDataOptionValue::User(user_id) => Some((user_id.to_string(), *user_id == command.user.id)),
+            _ => None,
+        })
+        .unwrap_or_else(|| (command_helpers::get_user_id(command), true));
 
     info!("Stats command executed by user {} for user {}", command_helpers::get_user_id(command), target_user_id);
 
@@ -217,17 +216,7 @@ pub async fn stats(
 
     let user = match data_read.get_user(&guild_id, &target_user_id) {
         Some(user) if user.is_active => user,
-        Some(_) => {
-            let msg = if is_self {
-                "You're not currently registered for daily check-ins. Use `/register-goal` to get started!"
-            } else {
-                "That user is not currently registered for daily check-ins."
-            };
-            let response = responses::error_response(msg);
-            command.create_response(&ctx.http, response).await?;
-            return Ok(());
-        }
-        None => {
+        _ => {
             let msg = if is_self {
                 "You're not currently registered for daily check-ins. Use `/register-goal` to get started!"
             } else {
@@ -272,11 +261,10 @@ pub async fn stats(
             let time_remaining = deadline.signed_duration_since(now);
 
             if time_remaining.num_seconds() > 0 {
-                let hours = time_remaining.num_hours();
-                let minutes = (time_remaining.num_minutes() % 60).abs();
-
+                // Use Discord's relative timestamp format for dynamic countdown
+                let deadline_unix = deadline.timestamp();
                 message.push_str(&format!("**Today's Check-in:** ⏳ Not yet complete\n"));
-                message.push_str(&format!("**Time Remaining:** {} hours, {} minutes\n", hours, minutes));
+                message.push_str(&format!("**Time Remaining:** <t:{}:R>\n", deadline_unix));
             } else {
                 message.push_str("**Today's Check-in:** ❌ Missed (deadline passed)\n");
             }
