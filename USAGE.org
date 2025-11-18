@@ -130,7 +130,7 @@ Configure when daily messages are posted:
 
 View stats for yourself (no parameters) or for another user (by specifying the user parameter).
 
-This displays:
+This displays stats as a Discord embed showing:
 - Personal goal
 - Current streak (consecutive check-ins)
 - Longest streak ever achieved
@@ -138,29 +138,30 @@ This displays:
 
 *Example output (viewing your own stats):*
 #+BEGIN_EXAMPLE
-📊 **Your Stats**
+Your Stats
 
-**Goal:** Exercise for 30 minutes daily
+Goal: Exercise for 30 minutes daily
 
-**Current Streak:** 🔥 12 days
-**Longest Streak:** 🏆 15 days
+🔥 Current Streak: 12 days
+Longest Streak: 15 days
 
-**Today's Check-in:** ⏳ Not yet complete
-**Time Remaining:** in 8 hours
+Today's Check-in: Not yet complete
+Streak expires: in 8 hours
 #+END_EXAMPLE
 
 Note: Time remaining uses Discord's dynamic timestamp feature, so it updates automatically and displays relative to the viewer's local time.
 
 *Example output (viewing another user's stats):*
 #+BEGIN_EXAMPLE
-📊 **Stats for @John**
+User Stats
+@John
 
-**Goal:** Read 10 pages of a book each day
+Goal: Read 10 pages of a book each day
 
-**Current Streak:** 🔥 45 days
-**Longest Streak:** 🏆 45 days
+🔥 Current Streak: 45 days
+Longest Streak: 45 days
 
-**Today's Check-in:** ✅ Complete
+Today's Check-in: Complete
 #+END_EXAMPLE
 
 ** Re-registration
@@ -173,24 +174,33 @@ If you use =/register-goal= again after being registered:
 
 ** How Daily Check-ins Work
 
-1. **Daily Post**: The bot automatically posts a daily message at your configured time
+1. **Daily Post**: The bot automatically posts a daily message as a Discord embed at your configured time
 2. **Thread Creation**: A thread is created under each daily post with the date (e.g., "Daily Check-in Responses 11/17/25")
-3. **User Pings**: All registered users are pinged with their current goals and streak counts
+3. **User Notifications**: All registered users are pinged in the thread to ensure they receive notifications
 4. **Response Window**: Users have 24 hours from the daily post creation to respond
 5. **Streak Tracking**: Responding in the thread counts toward your daily streak
 
 ** Sample Daily Message
-#+BEGIN_EXAMPLE
-🌅 **Daily Check-in Time!**
+The daily message appears as a Discord embed:
 
+#+BEGIN_EXAMPLE
+Daily Check-in Time!
 Time to share your progress! Reply in this thread with your update.
 
-* @John - Exercise for 30 minutes daily 🔥12
-* @Sarah - Read 10 pages daily 🔥5  
-* @Mike - Practice guitar for 20 minutes 🔥0
-* @Lisa - Write 500 words for my novel 🔥23
+Participants:
+• @John - Exercise for 30 minutes daily 🔥12
+• @Sarah - Read 10 pages daily 🔥5  
+• @Mike - Practice guitar for 20 minutes 🔥0
+• @Lisa - Write 500 words for my novel 🔥23
+#+END_EXAMPLE
 
-💪 Keep up the momentum!
+Additionally, in the thread, users will see a notification message:
+#+BEGIN_EXAMPLE
+Time to check in!
+@John
+@Sarah
+@Mike
+@Lisa
 #+END_EXAMPLE
 
 ** How to Check In

@@ -28,7 +28,7 @@ This document provides comprehensive manual test cases to verify the Daily Check
 
 ** Basic Command Response
 - [ ] =/ping= command appears in Discord's slash command autocomplete
-- [ ] =/ping= command responds with "Pong! 🏓"
+- [ ] =/ping= command responds with "Pong!"
 - [ ] Response appears immediately (no timeout errors)
 
 * Phase 2: User Management Tests
@@ -37,27 +37,28 @@ This document provides comprehensive manual test cases to verify the Daily Check
 - [ ] =/register-goal= appears in slash command autocomplete
 - [ ] =/edit-goal= appears in slash command autocomplete  
 - [ ] =/deregister= appears in slash command autocomplete
+- [ ] =/stats= appears in slash command autocomplete
 - [ ] All commands show proper descriptions and required parameters
 
 ** Goal Registration - New Users
 
 *** Test Case: Valid Goal Registration
 - [ ] Run =/register-goal goal:"Learn Rust programming"=
-- [ ] Expect: ✅ success response with welcome message
+- [ ] Expect: Success response with welcome message
 - [ ] Expect: Message mentions daily check-ins and pings
 - [ ] Verify: =bot_data.json= file created/updated with user data
 
 *** Test Case: Empty Goal
 - [ ] Run =/register-goal goal:"   "= (spaces only)
-- [ ] Expect: ❌ error response about empty goal
+- [ ] Expect: Error response about empty goal
 
 *** Test Case: Long Goal  
 - [ ] Run =/register-goal= with goal text >500 characters
-- [ ] Expect: ❌ error response about character limit
+- [ ] Expect: Error response about character limit
 
 *** Test Case: DM Usage (Should Fail)
 - [ ] Try =/register-goal= in direct message to bot
-- [ ] Expect: ❌ error response about server-only usage
+- [ ] Expect: Error response about server-only usage
 
 ** Goal Updates - Existing Users
 
@@ -90,20 +91,40 @@ This document provides comprehensive manual test cases to verify the Daily Check
 - [ ] Run =/deregister= again
 - [ ] Expect: ❌ error response about not being registered
 
+** Stats Command Tests
+
+*** Test Case: View Own Stats (Registered User)
+- [ ] Register: =/register-goal goal:"Test goal"=
+- [ ] Run: =/stats=
+- [ ] Expect: Discord embed displaying user stats
+- [ ] Verify: Shows goal, current streak, longest streak, check-in status
+
+*** Test Case: View Other User's Stats
+- [ ] Have User A register a goal
+- [ ] Run: =/stats user:@UserA= as different user
+- [ ] Expect: Discord embed showing User A's stats
+- [ ] Verify: Shows User A's goal and streak information
+
+*** Test Case: Stats for Unregistered User
+- [ ] Run: =/stats= without registering first
+- [ ] Expect: Error message about not being registered
+- [ ] Run: =/stats user:@UnregisteredUser=
+- [ ] Expect: Error message about user not being registered
+
 ** Re-registration After Deactivation
 
 *** Test Case: Reactivate with Same Goal
 - [ ] Register: =/register-goal goal:"Test goal"=
 - [ ] Deregister: =/deregister=
 - [ ] Re-register with same goal: =/register-goal goal:"Test goal"=
-- [ ] Expect: ✅ welcome message (treated as new registration)
+- [ ] Expect: Welcome message (treated as new registration)
 - [ ] Verify: User marked as =is_active: true= with =current_streak: 0=
 
 *** Test Case: Reactivate with New Goal  
 - [ ] Register: =/register-goal goal:"Old goal"=
 - [ ] Deregister: =/deregister=
 - [ ] Re-register: =/register-goal goal:"New goal"=
-- [ ] Expect: ✅ welcome message with new goal
+- [ ] Expect: Welcome message with new goal
 - [ ] Verify: Goal updated, streak reset to 0
 
 * Data Persistence Tests
@@ -197,9 +218,8 @@ After testing:
 - [ ] Clear any test data from production systems
 - [ ] Document any issues found during testing
 
-* Known Limitations (Current Phase)
+* Known Limitations (Current Implementation)
 
-- No admin configuration commands yet (Phase 3)
-- No daily posting functionality (Phase 4)  
-- No streak tracking or thread monitoring (Phase 5+)
+- Daily posting uses embeds and thread notifications for better user experience
+- All features through Phase 6 have been implemented
 - Commands are global (may take up to 1 hour to register/update)
