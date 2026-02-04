@@ -46,7 +46,9 @@ async fn main() -> Result<()> {
     let token = std::env::var("DISCORD_TOKEN")
         .map_err(|_| anyhow::anyhow!("DISCORD_TOKEN environment variable is required"))?;
 
-    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+    let intents = GatewayIntents::GUILD_MESSAGES
+        | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
     let handler = Handler {
         data: bot.data.clone(),

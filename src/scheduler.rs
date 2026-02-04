@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc, NaiveTime, Timelike};
 use chrono_tz::Tz;
 use serenity::{
     builder::{CreateMessage, CreateThread, CreateEmbed},
-    model::id::{ChannelId, GuildId},
+    model::{id::{ChannelId, GuildId}, channel::ReactionType},
     prelude::*,
 };
 use std::time::Duration;
@@ -142,10 +142,13 @@ impl DailyScheduler {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Generate the daily message embed
         let embed = self.generate_daily_embed(guild_id).await?;
-        
+
         // Post the message
         let message = channel_id.send_message(&ctx.http, CreateMessage::new().add_embed(embed)).await?;
-        
+
+        // Add 🔥 reaction as a hint that users can react
+        message.react(&ctx.http, ReactionType::Unicode("🔥".to_string())).await?;
+
         // Create a thread under the message with today's date
         let today = Utc::now().format("%m/%d/%y");
         let thread_name = format!("Daily Check-in Responses {}", today);
@@ -199,7 +202,7 @@ impl DailyScheduler {
         
         let mut embed = CreateEmbed::new()
             .title("Daily Check-in")
-            .description("Update this thread with today's progress!")
+            .description("React with 🔥 to this message OR reply to the thread below to check in!")
             .color(0x00ff88); // Green color for daily check-ins
         
         if active_users.is_empty() {

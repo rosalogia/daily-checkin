@@ -2,8 +2,8 @@ use crate::{bot::SharedBotData, data::{UserData, BotData}};
 use chrono::{Utc, NaiveDate, Duration};
 use serenity::{
     model::{
-        channel::Message,
-        id::{GuildId, ChannelId},
+        channel::{Message, Reaction, ReactionType},
+        id::{GuildId, ChannelId, MessageId},
     },
     prelude::Context,
 };
@@ -50,10 +50,68 @@ impl StreakManager {
                 if thread_id == &channel_id_str {
                     // Calculate 24-hour deadline: daily post time + 24 hours
                     let deadline = daily_post.posted_at + Duration::hours(24);
-                    
+
                     // Check if message was posted before the deadline
                     return *message_time <= deadline;
                 }
+            }
+        }
+
+        false
+    }
+
+    /// Process a reaction to check if it's a valid daily check-in reaction
+    pub async fn process_reaction(&self, ctx: &Context, reaction: &Reaction) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Get user_id from reaction (it may be None in some edge cases)
+        let user_id = match reaction.user_id {
+            Some(id) => id,
+            None => return Ok(()), // Skip if no user_id
+        };
+
+        // Skip bot reactions
+        if user_id == ctx.cache.current_user().id {
+            return Ok(());
+        }
+
+        // Only process 🔥 emoji
+        if !self.is_fire_emoji(&reaction.emoji) {
+            return Ok(());
+        }
+
+        // Check if this reaction is on a valid daily check-in post within 24 hours
+        if let Some(guild_id) = reaction.guild_id {
+            let reaction_time = Utc::now();
+            if self.is_valid_checkin_reaction(guild_id, reaction.message_id, &reaction_time).await {
+                info!("Processing check-in reaction from user {} in guild {}", user_id, guild_id);
+                self.record_checkin(guild_id, user_id, &reaction_time).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check if emoji is the fire emoji (🔥)
+    fn is_fire_emoji(&self, emoji: &ReactionType) -> bool {
+        match emoji {
+            ReactionType::Unicode(s) => s == "🔥",
+            _ => false,
+        }
+    }
+
+    /// Check if a reaction is a valid check-in (on daily post message + within 24 hours)
+    async fn is_valid_checkin_reaction(&self, guild_id: GuildId, message_id: MessageId, reaction_time: &chrono::DateTime<Utc>) -> bool {
+        let data = self.data.read().await;
+        let guild_id_str = guild_id.to_string();
+        let message_id_str = message_id.to_string();
+
+        if let Some(daily_post) = data.daily_posts.get(&guild_id_str) {
+            // Check if this is the current daily post message
+            if &message_id_str == &daily_post.message_id {
+                // Calculate 24-hour deadline: daily post time + 24 hours
+                let deadline = daily_post.posted_at + Duration::hours(24);
+
+                // Check if reaction was added before the deadline
+                return *reaction_time <= deadline;
             }
         }
 

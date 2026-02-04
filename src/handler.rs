@@ -3,7 +3,7 @@ use serenity::{
     model::{
         application::Interaction,
         gateway::Ready,
-        channel::Message,
+        channel::{Message, Reaction},
     },
     prelude::*,
 };
@@ -44,6 +44,14 @@ impl EventHandler for Handler {
         let streak_manager = StreakManager::new(self.data.clone());
         if let Err(why) = streak_manager.process_message(&ctx, &msg).await {
             error!("Error processing message for streaks: {}", why);
+        }
+    }
+
+    async fn reaction_add(&self, ctx: Context, reaction: Reaction) {
+        // Process reaction for potential check-in
+        let streak_manager = StreakManager::new(self.data.clone());
+        if let Err(why) = streak_manager.process_reaction(&ctx, &reaction).await {
+            error!("Error processing reaction for streaks: {}", why);
         }
     }
 }
