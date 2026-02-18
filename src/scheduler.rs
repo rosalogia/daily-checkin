@@ -2,8 +2,8 @@ use crate::{bot::SharedBotData, data::DailyPost, streaks::StreakManager};
 use chrono::{DateTime, Utc, NaiveTime, Timelike};
 use chrono_tz::Tz;
 use serenity::{
-    builder::{CreateMessage, CreateThread, CreateEmbed},
-    model::{id::{ChannelId, GuildId}, channel::ReactionType},
+    builder::{CreateMessage, CreateThread, CreateEmbed, EditThread},
+    model::{id::{ChannelId, GuildId, MessageId}, channel::ReactionType},
     prelude::*,
 };
 use std::time::Duration;
@@ -133,13 +133,55 @@ impl DailyScheduler {
         }
     }
 
+    /// Archive the previous daily post for a guild (archive thread + delete message)
+    async fn archive_previous_post(
+        &self,
+        ctx: &Context,
+        guild_id: GuildId,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let data = self.data.read().await;
+        let guild_id_str = guild_id.to_string();
+
+        let previous_post = match data.daily_posts.get(&guild_id_str) {
+            Some(post) => post.clone(),
+            None => return Ok(()),
+        };
+        drop(data);
+
+        // Archive the thread first (if one exists)
+        if let Some(ref thread_id_str) = previous_post.thread_id {
+            let thread_id: ChannelId = thread_id_str.parse()?;
+            if let Err(e) = thread_id
+                .edit_thread(&ctx.http, EditThread::new().archived(true))
+                .await
+            {
+                error!("Failed to archive thread {} for guild {}: {}", thread_id, guild_id, e);
+            }
+        }
+
+        // Delete the main embed message to clear channel clutter
+        let channel_id: ChannelId = previous_post.channel_id.parse()?;
+        let message_id: MessageId = previous_post.message_id.parse()?;
+        if let Err(e) = channel_id.delete_message(&ctx.http, message_id).await {
+            error!("Failed to delete previous daily post for guild {}: {}", guild_id, e);
+        }
+
+        info!("Archived previous daily post for guild {}", guild_id);
+        Ok(())
+    }
+
     /// Post the daily check-in message
-    async fn post_daily_message(
+    pub async fn post_daily_message(
         &self,
         ctx: &Context,
         guild_id: GuildId,
         channel_id: ChannelId,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Archive the previous daily post before creating a new one
+        if let Err(e) = self.archive_previous_post(ctx, guild_id).await {
+            error!("Failed to archive previous post for guild {}: {}", guild_id, e);
+        }
+
         // Generate the daily message embed
         let embed = self.generate_daily_embed(guild_id).await?;
 
