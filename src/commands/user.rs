@@ -105,6 +105,7 @@ pub async fn register_goal(
                 last_checkin_date: None,
                 grace_period_start: None,
                 is_active: true,
+                has_used_reaction_checkin: false,
                 created_at: now,
                 updated_at: now,
             };

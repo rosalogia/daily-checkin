@@ -30,8 +30,19 @@ impl StreakManager {
             let message_time = chrono::DateTime::<Utc>::from_timestamp(msg.timestamp.unix_timestamp(), 0)
                 .unwrap_or_else(|| Utc::now());
             if self.is_valid_checkin_response(guild_id, msg.channel_id, &message_time).await {
+                // Skip users who have switched to reaction-only check-ins
+                {
+                    let data = self.data.read().await;
+                    if let Some(user) = data.get_user(&guild_id.to_string(), &msg.author.id.to_string()) {
+                        if user.has_used_reaction_checkin {
+                            debug!("User {} uses reaction check-ins, ignoring thread message in guild {}", msg.author.id, guild_id);
+                            return Ok(());
+                        }
+                    }
+                }
+
                 info!("Processing check-in response from user {} in guild {}", msg.author.id, guild_id);
-                self.record_checkin(guild_id, msg.author.id, &message_time).await?;
+                self.record_checkin(guild_id, msg.author.id, &message_time, false).await?;
             }
         }
 
@@ -83,7 +94,7 @@ impl StreakManager {
             let reaction_time = Utc::now();
             if self.is_valid_checkin_reaction(guild_id, reaction.message_id, &reaction_time).await {
                 info!("Processing check-in reaction from user {} in guild {}", user_id, guild_id);
-                self.record_checkin(guild_id, user_id, &reaction_time).await?;
+                self.record_checkin(guild_id, user_id, &reaction_time, true).await?;
             }
         }
 
@@ -124,6 +135,7 @@ impl StreakManager {
         guild_id: GuildId,
         user_id: serenity::model::id::UserId,
         message_time: &chrono::DateTime<Utc>,
+        via_reaction: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut data = self.data.write().await;
         let guild_id_str = guild_id.to_string();
@@ -157,6 +169,12 @@ impl StreakManager {
                     return Ok(());
                 }
             }
+        }
+
+        // Mark user as having used reaction check-in (opts them out of thread-message check-ins)
+        if via_reaction && !user.has_used_reaction_checkin {
+            user.has_used_reaction_checkin = true;
+            info!("User {} in guild {} has switched to reaction-only check-ins", user_id, guild_id);
         }
 
         // Update user streak

@@ -13,6 +13,8 @@ pub struct UserData {
     pub last_checkin_date: Option<NaiveDate>,
     pub grace_period_start: Option<NaiveDate>,
     pub is_active: bool,
+    #[serde(default)]
+    pub has_used_reaction_checkin: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
