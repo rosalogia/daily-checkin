@@ -1,13 +1,26 @@
-use crate::{bot::SharedBotData, data::{UserData, BotData}};
+use crate::{bot::SharedBotData, data::{UserData, BotData, DailyPost}};
 use chrono::{Utc, NaiveDate, Duration};
 use serenity::{
+    builder::GetMessages,
     model::{
-        channel::{Message, Reaction, ReactionType},
-        id::{GuildId, ChannelId, MessageId},
+        application::ComponentInteraction,
+        id::{GuildId, ChannelId, MessageId, UserId},
     },
     prelude::Context,
 };
+use std::collections::HashMap;
 use tracing::{info, debug, error};
+
+/// Custom ID of the check-in button attached to each daily post
+pub const CHECKIN_BUTTON_ID: &str = "daily-checkin";
+
+/// Result of attempting to record a check-in
+pub enum CheckinOutcome {
+    CheckedIn { streak: u32 },
+    AlreadyCheckedIn,
+    Inactive,
+    NotRegistered,
+}
 
 pub struct StreakManager {
     data: SharedBotData,
@@ -18,99 +31,100 @@ impl StreakManager {
         Self { data }
     }
 
-    /// Process a message to check if it's a valid daily check-in response
-    pub async fn process_message(&self, _ctx: &Context, msg: &Message) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Skip bot messages
-        if msg.author.bot {
-            return Ok(());
-        }
-
-        // Check if this message is in a daily check-in thread within 24 hours
-        if let Some(guild_id) = msg.guild_id {
-            let message_time = chrono::DateTime::<Utc>::from_timestamp(msg.timestamp.unix_timestamp(), 0)
-                .unwrap_or_else(|| Utc::now());
-            if self.is_valid_checkin_response(guild_id, msg.channel_id, &message_time).await {
-                // Skip users who have switched to reaction-only check-ins
-                {
-                    let data = self.data.read().await;
-                    if let Some(user) = data.get_user(&guild_id.to_string(), &msg.author.id.to_string()) {
-                        if user.has_used_reaction_checkin {
-                            debug!("User {} uses reaction check-ins, ignoring thread message in guild {}", msg.author.id, guild_id);
-                            return Ok(());
-                        }
-                    }
+    /// Credit check-ins for replies in the current daily post's thread.
+    /// Runs before the next daily post, since thread messages are read in a batch rather than live.
+    pub async fn process_thread_replies(&self, ctx: &Context, guild_id: GuildId) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
+        let (thread_id, deadline) = {
+            let data = self.data.read().await;
+            match data.daily_posts.get(&guild_id.to_string()) {
+                Some(DailyPost { thread_id: Some(thread_id), posted_at, .. }) => {
+                    (thread_id.parse::<ChannelId>()?, *posted_at + Duration::hours(24))
                 }
-
-                info!("Processing check-in response from user {} in guild {}", msg.author.id, guild_id);
-                self.record_checkin(guild_id, msg.author.id, &message_time, false).await?;
+                _ => return Ok(0),
             }
-        }
-
-        Ok(())
-    }
-
-    /// Check if a message is a valid check-in response (in thread + within 24 hours of post)
-    async fn is_valid_checkin_response(&self, guild_id: GuildId, channel_id: ChannelId, message_time: &chrono::DateTime<Utc>) -> bool {
-        let data = self.data.read().await;
-        let guild_id_str = guild_id.to_string();
-        let channel_id_str = channel_id.to_string();
-
-        if let Some(daily_post) = data.daily_posts.get(&guild_id_str) {
-            // Check if this is the correct thread
-            if let Some(thread_id) = &daily_post.thread_id {
-                if thread_id == &channel_id_str {
-                    // Calculate 24-hour deadline: daily post time + 24 hours
-                    let deadline = daily_post.posted_at + Duration::hours(24);
-
-                    // Check if message was posted before the deadline
-                    return *message_time <= deadline;
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Process a reaction to check if it's a valid daily check-in reaction
-    pub async fn process_reaction(&self, ctx: &Context, reaction: &Reaction) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Get user_id from reaction (it may be None in some edge cases)
-        let user_id = match reaction.user_id {
-            Some(id) => id,
-            None => return Ok(()), // Skip if no user_id
         };
 
-        // Skip bot reactions
-        if user_id == ctx.cache.current_user().id {
-            return Ok(());
-        }
+        // Find each user's earliest reply within 24 hours of the post
+        let mut first_replies: HashMap<UserId, chrono::DateTime<Utc>> = HashMap::new();
+        let mut before: Option<MessageId> = None;
+        loop {
+            let mut request = GetMessages::new().limit(100);
+            if let Some(id) = before {
+                request = request.before(id);
+            }
+            let page = thread_id.messages(&ctx.http, request).await?;
 
-        // Only process 🔥 emoji
-        if !self.is_fire_emoji(&reaction.emoji) {
-            return Ok(());
-        }
+            for msg in &page {
+                if msg.author.bot {
+                    continue;
+                }
+                let message_time = chrono::DateTime::<Utc>::from_timestamp(msg.timestamp.unix_timestamp(), 0)
+                    .unwrap_or_else(|| Utc::now());
+                if message_time > deadline {
+                    continue;
+                }
+                first_replies
+                    .entry(msg.author.id)
+                    .and_modify(|t| *t = (*t).min(message_time))
+                    .or_insert(message_time);
+            }
 
-        // Check if this reaction is on a valid daily check-in post within 24 hours
-        if let Some(guild_id) = reaction.guild_id {
-            let reaction_time = Utc::now();
-            if self.is_valid_checkin_reaction(guild_id, reaction.message_id, &reaction_time).await {
-                info!("Processing check-in reaction from user {} in guild {}", user_id, guild_id);
-                self.record_checkin(guild_id, user_id, &reaction_time, true).await?;
+            // Messages come back newest first; stop once a page isn't full
+            match page.last() {
+                Some(oldest) if page.len() == 100 => before = Some(oldest.id),
+                _ => break,
             }
         }
 
-        Ok(())
-    }
+        let mut credited = 0;
+        for (user_id, message_time) in first_replies {
+            // Skip users who have switched to button-only check-ins
+            {
+                let data = self.data.read().await;
+                if let Some(user) = data.get_user(&guild_id.to_string(), &user_id.to_string()) {
+                    if user.has_used_reaction_checkin {
+                        debug!("User {} uses button check-ins, ignoring thread replies in guild {}", user_id, guild_id);
+                        continue;
+                    }
+                }
+            }
 
-    /// Check if emoji is the fire emoji (🔥)
-    fn is_fire_emoji(&self, emoji: &ReactionType) -> bool {
-        match emoji {
-            ReactionType::Unicode(s) => s == "🔥",
-            _ => false,
+            info!("Processing thread check-in from user {} in guild {}", user_id, guild_id);
+            if let CheckinOutcome::CheckedIn { .. } = self.record_checkin(guild_id, user_id, &message_time, false).await? {
+                credited += 1;
+            }
         }
+
+        Ok(credited)
     }
 
-    /// Check if a reaction is a valid check-in (on daily post message + within 24 hours)
-    async fn is_valid_checkin_reaction(&self, guild_id: GuildId, message_id: MessageId, reaction_time: &chrono::DateTime<Utc>) -> bool {
+    /// Process a click on the daily post's check-in button, returning the ephemeral reply text
+    pub async fn process_button(&self, component: &ComponentInteraction) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let guild_id = match component.guild_id {
+            Some(id) => id,
+            None => return Ok("Check-ins only work inside a server.".to_string()),
+        };
+
+        // Check if the button is on the current daily post within 24 hours
+        let click_time = Utc::now();
+        if !self.is_valid_checkin_post(guild_id, component.message.id, &click_time).await {
+            return Ok("This check-in post has expired. Use the latest daily post!".to_string());
+        }
+
+        info!("Processing check-in button from user {} in guild {}", component.user.id, guild_id);
+        let reply = match self.record_checkin(guild_id, component.user.id, &click_time, true).await? {
+            CheckinOutcome::CheckedIn { streak } => format!("✅ Checked in! Your streak is now 🔥**{}**", streak),
+            CheckinOutcome::AlreadyCheckedIn => "You've already checked in today.".to_string(),
+            CheckinOutcome::Inactive | CheckinOutcome::NotRegistered => {
+                "You're not registered for daily check-ins. Use `/register-goal` to join!".to_string()
+            }
+        };
+
+        Ok(reply)
+    }
+
+    /// Check if a message is the current daily check-in post and still within 24 hours
+    async fn is_valid_checkin_post(&self, guild_id: GuildId, message_id: MessageId, click_time: &chrono::DateTime<Utc>) -> bool {
         let data = self.data.read().await;
         let guild_id_str = guild_id.to_string();
         let message_id_str = message_id.to_string();
@@ -121,8 +135,8 @@ impl StreakManager {
                 // Calculate 24-hour deadline: daily post time + 24 hours
                 let deadline = daily_post.posted_at + Duration::hours(24);
 
-                // Check if reaction was added before the deadline
-                return *reaction_time <= deadline;
+                // Check if the button was clicked before the deadline
+                return *click_time <= deadline;
             }
         }
 
@@ -133,10 +147,10 @@ impl StreakManager {
     async fn record_checkin(
         &self,
         guild_id: GuildId,
-        user_id: serenity::model::id::UserId,
+        user_id: UserId,
         message_time: &chrono::DateTime<Utc>,
-        via_reaction: bool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        via_button: bool,
+    ) -> Result<CheckinOutcome, Box<dyn std::error::Error + Send + Sync>> {
         let mut data = self.data.write().await;
         let guild_id_str = guild_id.to_string();
         let user_id_str = user_id.to_string();
@@ -153,11 +167,11 @@ impl StreakManager {
             Some(user) if user.is_active => user,
             Some(_) => {
                 debug!("User {} is inactive in guild {}, ignoring check-in", user_id, guild_id);
-                return Ok(());
+                return Ok(CheckinOutcome::Inactive);
             }
             None => {
                 debug!("User {} not registered in guild {}, ignoring check-in", user_id, guild_id);
-                return Ok(());
+                return Ok(CheckinOutcome::NotRegistered);
             }
         };
         
@@ -166,20 +180,22 @@ impl StreakManager {
                 // If they already checked in on or after the day this post was created, skip
                 if last_checkin >= post_date {
                     debug!("User {} already checked in for this daily post cycle in guild {}", user_id, guild_id);
-                    return Ok(());
+                    return Ok(CheckinOutcome::AlreadyCheckedIn);
                 }
             }
         }
 
-        // Mark user as having used reaction check-in (opts them out of thread-message check-ins)
-        if via_reaction && !user.has_used_reaction_checkin {
+        // Mark user as having used button check-in (opts them out of thread-message check-ins).
+        // The field keeps its original name so existing data files still deserialize.
+        if via_button && !user.has_used_reaction_checkin {
             user.has_used_reaction_checkin = true;
-            info!("User {} in guild {} has switched to reaction-only check-ins", user_id, guild_id);
+            info!("User {} in guild {} has switched to button-only check-ins", user_id, guild_id);
         }
 
         // Update user streak
         Self::update_user_streak(user, response_date);
         info!("User {} checked in! New streak: {} days", user_id, user.current_streak);
+        let streak = user.current_streak;
 
         // Save data
         if let Err(e) = data.save().await {
@@ -187,7 +203,7 @@ impl StreakManager {
             return Err(e.into());
         }
 
-        Ok(())
+        Ok(CheckinOutcome::CheckedIn { streak })
     }
 
     /// Update a user's streak based on their check-in

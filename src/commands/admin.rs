@@ -1,6 +1,9 @@
 use serenity::{
     builder::{CreateCommand, CreateCommandOption},
-    model::application::{CommandInteraction, CommandOptionType},
+    model::{
+        application::{CommandInteraction, CommandOptionType},
+        id::{ChannelId, GuildId, UserId},
+    },
     prelude::*,
 };
 use crate::{
@@ -10,6 +13,7 @@ use crate::{
         command_helpers::{get_guild_id, get_channel_option, get_string_option, is_admin, validate_timezone, validate_time_format},
         responses::{default_response},
     },
+    streaks::StreakManager,
 };
 use chrono::Utc;
 use tracing::{info, debug, error};
@@ -195,5 +199,110 @@ pub async fn set_checkin_time(
         default_response(&format!("Daily check-in time has been set to {}!", validated_time))
     };
     command.create_response(&ctx.http, response).await?;
+    Ok(())
+}
+
+pub fn trigger_checkin_command() -> CreateCommand {
+    CreateCommand::new("trigger-checkin")
+        .description("Manually trigger the daily check-in post (Bot owner only)")
+}
+
+pub async fn trigger_checkin(
+    ctx: &Context,
+    command: &CommandInteraction,
+    data: SharedBotData,
+) -> serenity::Result<()> {
+    const AUTHORIZED_USER_ID: u64 = 586202950116966402;
+
+    info!("Trigger checkin command executed by user {}", command.user.id);
+
+    // Check if user is authorized
+    if command.user.id != UserId::new(AUTHORIZED_USER_ID) {
+        let response = default_response("This command is restricted to the bot owner.");
+        command.create_response(&ctx.http, response).await?;
+        return Ok(());
+    }
+
+    // Get guild ID
+    let guild_id = get_guild_id(command)?;
+
+    // Get server configuration
+    let channel_id = {
+        let bot_data = data.read().await;
+        match bot_data.get_server_config(&guild_id) {
+            Some(config) => {
+                match &config.checkin_channel_id {
+                    Some(id) => id.clone(),
+                    None => {
+                        let response = default_response("No check-in channel configured. Use `/set-checkin-channel` first.");
+                        command.create_response(&ctx.http, response).await?;
+                        return Ok(());
+                    }
+                }
+            }
+            None => {
+                let response = default_response("Server not configured. Use `/set-checkin-channel` first.");
+                command.create_response(&ctx.http, response).await?;
+                return Ok(());
+            }
+        }
+    };
+
+    // Acknowledge the command
+    let response = default_response("Triggering daily check-in post...");
+    command.create_response(&ctx.http, response).await?;
+
+    let guild_id_parsed: GuildId = guild_id.parse()
+        .map_err(|_| serenity::Error::Other("Invalid guild ID"))?;
+
+    // Credit thread replies to the previous post before streak maintenance
+    match StreakManager::new(data.clone()).process_thread_replies(ctx, guild_id_parsed).await {
+        Ok(count) => info!("Credited {} thread check-ins for guild {} before manual post", count, guild_id),
+        Err(e) => error!("Failed to process thread replies for guild {}: {}", guild_id, e),
+    }
+
+    // Run streak maintenance
+    {
+        let mut bot_data = data.write().await;
+        match StreakManager::reset_streaks_for_guild(&mut bot_data, &guild_id).await {
+            Ok(reset_count) => {
+                if reset_count > 0 {
+                    info!("Reset {} streaks for guild {} before manual post", reset_count, guild_id);
+                }
+            }
+            Err(e) => {
+                error!("Failed to run streak maintenance for guild {}: {}", guild_id, e);
+            }
+        }
+
+        if let Err(e) = bot_data.save().await {
+            error!("Failed to save data after streak maintenance: {}", e);
+        }
+    }
+
+    // Parse channel ID and post the message
+    let channel_id_parsed: ChannelId = channel_id.parse()
+        .map_err(|_| serenity::Error::Other("Invalid channel ID"))?;
+
+    // Use the scheduler's post method
+    let scheduler = crate::scheduler::DailyScheduler::new(data.clone());
+    match scheduler.post_daily_message(ctx, guild_id_parsed, channel_id_parsed).await {
+        Ok(_) => {
+            info!("Successfully posted manual daily message for guild {}", guild_id);
+            // Follow up with success message
+            command.edit_response(&ctx.http,
+                serenity::builder::EditInteractionResponse::new()
+                    .content("✅ Daily check-in post created successfully!")
+            ).await?;
+        }
+        Err(e) => {
+            error!("Failed to post manual daily message: {}", e);
+            command.edit_response(&ctx.http,
+                serenity::builder::EditInteractionResponse::new()
+                    .content("❌ Failed to create daily check-in post. Check bot logs for details.")
+            ).await?;
+        }
+    }
+
     Ok(())
 }

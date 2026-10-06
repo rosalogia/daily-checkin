@@ -1,9 +1,9 @@
-use crate::{bot::SharedBotData, data::DailyPost, streaks::StreakManager};
+use crate::{bot::SharedBotData, data::DailyPost, streaks::{StreakManager, CHECKIN_BUTTON_ID}};
 use chrono::{DateTime, Utc, NaiveTime, Timelike};
 use chrono_tz::Tz;
 use serenity::{
-    builder::{CreateMessage, CreateThread, CreateEmbed, EditThread},
-    model::{id::{ChannelId, GuildId, MessageId}, channel::ReactionType},
+    builder::{CreateActionRow, CreateButton, CreateMessage, CreateThread, CreateEmbed, EditThread},
+    model::{id::{ChannelId, GuildId, MessageId}, application::ButtonStyle},
     prelude::*,
 };
 use std::time::Duration;
@@ -60,7 +60,19 @@ impl DailyScheduler {
                 }
 
                 info!("Posting daily message for guild {} in channel {}", guild_id, channel_id);
-                
+
+                let guild_id_parsed: GuildId = guild_id.parse()?;
+                let channel_id_parsed: ChannelId = channel_id.parse()?;
+
+                // Credit thread replies to the previous post before streak maintenance.
+                // Release the write lock while calling Discord.
+                drop(data);
+                match StreakManager::new(self.data.clone()).process_thread_replies(ctx, guild_id_parsed).await {
+                    Ok(count) => info!("Credited {} thread check-ins for guild {}", count, guild_id),
+                    Err(e) => error!("Failed to process thread replies for guild {}: {}", guild_id, e),
+                }
+                data = self.data.write().await;
+
                 // Run streak maintenance inline
                 match StreakManager::reset_streaks_for_guild(&mut data, guild_id).await {
                     Ok(reset_count) => {
@@ -77,10 +89,7 @@ impl DailyScheduler {
                 if let Err(e) = data.save().await {
                     error!("Failed to save data after streak maintenance for guild {}: {}", guild_id, e);
                 }
-                
-                let guild_id_parsed: GuildId = guild_id.parse()?;
-                let channel_id_parsed: ChannelId = channel_id.parse()?;
-                
+
                 // Release the write lock before posting
                 drop(data);
                 
@@ -185,11 +194,16 @@ impl DailyScheduler {
         // Generate the daily message embed
         let embed = self.generate_daily_embed(guild_id).await?;
 
-        // Post the message
-        let message = channel_id.send_message(&ctx.http, CreateMessage::new().add_embed(embed)).await?;
-
-        // Add 🔥 reaction as a hint that users can react
-        message.react(&ctx.http, ReactionType::Unicode("🔥".to_string())).await?;
+        // Post the message with a check-in button
+        let checkin_button = CreateButton::new(CHECKIN_BUTTON_ID)
+            .label("Check in")
+            .emoji('🔥')
+            .style(ButtonStyle::Success);
+        let message = channel_id.send_message(&ctx.http,
+            CreateMessage::new()
+                .add_embed(embed)
+                .components(vec![CreateActionRow::Buttons(vec![checkin_button])])
+        ).await?;
 
         // Create a thread under the message with today's date
         let today = Utc::now().format("%m/%d/%y");
@@ -244,7 +258,7 @@ impl DailyScheduler {
         
         let mut embed = CreateEmbed::new()
             .title("Daily Check-in")
-            .description("React with 🔥 to this message OR reply to the thread below to check in!")
+            .description("Press 🔥 **Check in** below OR reply to the thread below to check in!")
             .color(0x00ff88); // Green color for daily check-ins
         
         if active_users.is_empty() {
