@@ -1,0 +1,65 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Validate template
+        run: sam validate --lint
+
+      - name: Build Lambda binaries
+        run: sam build
+
+  # Deploys every push to main once CI passes
+  deploy:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Never run two deploys at once; queue instead of cancelling one mid-deploy
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # OIDC token for assuming the AWS deploy role
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build
+        run: sam build
+
+      - name: Deploy
+        run: >-
+          sam deploy
+          --no-confirm-changeset
+          --no-fail-on-empty-changeset
+          --role-arn ${{ vars.CFN_EXECUTION_ROLE_ARN }}
+
+      - name: Register slash commands
+        run: cargo run --locked --bin register-commands
+        env:
+          DISCORD_TOKEN_PARAMETER: /daily-checkin/discord-token

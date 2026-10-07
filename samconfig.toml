@@ -10,5 +10,7 @@ build_in_source = true
 
 [default.deploy.parameters]
 capabilities = "CAPABILITY_IAM"
+# Discord application public key (not secret)
+parameter_overrides = "DiscordPublicKey=fd7e7a9c240abf19f10af6ab0b45a04ee59a3adfbfe85201c60945e747e0165e"
 resolve_s3 = true
 confirm_changeset = true

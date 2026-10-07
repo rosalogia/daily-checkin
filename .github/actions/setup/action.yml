@@ -1,0 +1,26 @@
+name: Set up build tools
+description: Rust (from rust-toolchain.toml), cargo-lambda with Zig, and the SAM CLI
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust toolchain
+      shell: bash
+      run: rustup toolchain install
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: build
+
+    # cargo-lambda's PyPI package bundles Zig, which builds against Lambda's older glibc
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.13'
+
+    - name: Install cargo-lambda
+      shell: bash
+      run: pip install cargo-lambda==1.9.2
+
+    - uses: aws-actions/setup-sam@v3
+      with:
+        use-installer: true
