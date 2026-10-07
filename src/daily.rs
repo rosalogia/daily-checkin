@@ -22,9 +22,9 @@ pub enum DailyEvent {
     /// Sent by /trigger-checkin; runs one server's cycle immediately and reports back by editing
     /// the deferred interaction response
     Manual {
-        guild_id: String,
-        channel_id: String,
-        application_id: String,
+        guild_id: u64,
+        channel_id: u64,
+        application_id: u64,
         interaction_token: String,
     },
 }
@@ -72,11 +72,11 @@ pub async fn run_due_cycles(store: &Store, http: &Http) -> Result<(), Error> {
     let now = Utc::now();
 
     for config in store.list_configs().await? {
-        let guild_id = &config.guild_id;
+        let guild_id = config.guild_id;
 
         // Skip if no channel configured
-        let channel_id = match &config.checkin_channel_id {
-            Some(id) => id,
+        let channel_id = match config.checkin_channel_id {
+            Some(id) => ChannelId::new(id),
             None => {
                 debug!("No checkin channel configured for guild {}", guild_id);
                 continue;
@@ -99,7 +99,7 @@ pub async fn run_due_cycles(store: &Store, http: &Http) -> Result<(), Error> {
         }
 
         info!("Posting daily message for guild {} in channel {}", guild_id, channel_id);
-        if let Err(e) = run_cycle(store, http, guild_id, channel_id.parse()?).await {
+        if let Err(e) = run_cycle(store, http, guild_id, channel_id).await {
             error!("Daily cycle failed for guild {}: {}", guild_id, e);
         }
     }
@@ -108,13 +108,13 @@ pub async fn run_due_cycles(store: &Store, http: &Http) -> Result<(), Error> {
 }
 
 /// Credit thread replies to the previous post, reset missed streaks, then post the new daily message
-pub async fn run_cycle(store: &Store, http: &Http, guild_id: &str, channel_id: ChannelId) -> Result<(), Error> {
+pub async fn run_cycle(store: &Store, http: &Http, guild_id: u64, channel_id: ChannelId) -> Result<(), Error> {
     let streak_manager = StreakManager::new(store.clone());
     let previous_post = store.get_post(guild_id).await?;
 
     // Credit thread replies to the previous post before streak maintenance
     if let Some(post) = &previous_post {
-        match streak_manager.process_thread_replies(http, post).await {
+        match streak_manager.process_thread_replies(http, guild_id, post).await {
             Ok(count) => info!("Credited {} thread check-ins for guild {}", count, guild_id),
             Err(e) => error!("Failed to process thread replies for guild {}: {}", guild_id, e),
         }
@@ -134,7 +134,7 @@ pub async fn run_cycle(store: &Store, http: &Http, guild_id: &str, channel_id: C
 
     // Archive the previous daily post before creating a new one
     if let Some(post) = &previous_post {
-        if let Err(e) = archive_post(http, post).await {
+        if let Err(e) = archive_post(http, guild_id, post).await {
             error!("Failed to archive previous post for guild {}: {}", guild_id, e);
         }
     }
@@ -143,28 +143,27 @@ pub async fn run_cycle(store: &Store, http: &Http, guild_id: &str, channel_id: C
 }
 
 /// Archive a daily post (archive thread + delete message)
-async fn archive_post(http: &Http, post: &DailyPost) -> Result<(), Error> {
+async fn archive_post(http: &Http, guild_id: u64, post: &DailyPost) -> Result<(), Error> {
     // Archive the thread first (if one exists)
-    if let Some(ref thread_id_str) = post.thread_id {
-        let thread_id: ChannelId = thread_id_str.parse()?;
+    if let Some(thread_id) = post.thread_id.map(ChannelId::new) {
         if let Err(e) = thread_id.edit_thread(http, EditThread::new().archived(true)).await {
-            error!("Failed to archive thread {} for guild {}: {}", thread_id, post.guild_id, e);
+            error!("Failed to archive thread {} for guild {}: {}", thread_id, guild_id, e);
         }
     }
 
     // Delete the main embed message to clear channel clutter
-    let channel_id: ChannelId = post.channel_id.parse()?;
-    let message_id: MessageId = post.message_id.parse()?;
+    let channel_id = ChannelId::new(post.channel_id);
+    let message_id = MessageId::new(post.message_id);
     if let Err(e) = channel_id.delete_message(http, message_id).await {
-        error!("Failed to delete previous daily post for guild {}: {}", post.guild_id, e);
+        error!("Failed to delete previous daily post for guild {}: {}", guild_id, e);
     }
 
-    info!("Archived previous daily post for guild {}", post.guild_id);
+    info!("Archived previous daily post for guild {}", guild_id);
     Ok(())
 }
 
 /// Post the daily check-in message
-async fn post_daily_message(store: &Store, http: &Http, guild_id: &str, channel_id: ChannelId) -> Result<(), Error> {
+async fn post_daily_message(store: &Store, http: &Http, guild_id: u64, channel_id: ChannelId) -> Result<(), Error> {
     // Active users, sorted by streak (highest first) for motivation
     let mut active_users: Vec<UserData> = store.list_users(guild_id).await?
         .into_iter()
@@ -197,14 +196,13 @@ async fn post_daily_message(store: &Store, http: &Http, guild_id: &str, channel_
     // Save the daily post record
     let now = Utc::now();
     let daily_post = DailyPost {
-        guild_id: guild_id.to_string(),
-        channel_id: channel_id.to_string(),
-        message_id: message.id.to_string(),
-        thread_id: Some(thread.id.to_string()),
+        channel_id: channel_id.get(),
+        message_id: message.id.get(),
+        thread_id: Some(thread.id.get()),
         posted_at: now, // When the post was actually created
         created_at: now,
     };
-    store.put_post(&daily_post).await?;
+    store.put_post(guild_id, &daily_post).await?;
 
     info!("Successfully posted daily message for guild {} with thread {}", guild_id, thread.id);
     Ok(())
@@ -266,7 +264,7 @@ mod tests {
             daily_time: daily_time.to_string(),
             timezone: timezone.to_string(),
             last_cycle_at,
-            ..ServerConfig::new("1".to_string())
+            ..ServerConfig::new(1)
         }
     }
 

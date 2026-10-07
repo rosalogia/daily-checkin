@@ -3,7 +3,7 @@
 
 use daily_checkin_bot::{daily::{self, DailyEvent}, load_discord_token, store::Store};
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
-use serenity::{builder::EditInteractionResponse, http::Http, model::id::ApplicationId};
+use serenity::{builder::EditInteractionResponse, http::Http, model::id::{ApplicationId, ChannelId}};
 use tracing::{error, info};
 
 #[tokio::main]
@@ -21,7 +21,7 @@ async fn handle(store: &Store, http: &Http, event: DailyEvent) -> Result<(), Err
         DailyEvent::Scheduled => daily::run_due_cycles(store, http).await,
         DailyEvent::Manual { guild_id, channel_id, application_id, interaction_token } => {
             info!("Running manual daily cycle for guild {}", guild_id);
-            let result = daily::run_cycle(store, http, &guild_id, channel_id.parse()?).await;
+            let result = daily::run_cycle(store, http, guild_id, ChannelId::new(channel_id)).await;
 
             let content = match &result {
                 Ok(()) => {
@@ -35,7 +35,7 @@ async fn handle(store: &Store, http: &Http, event: DailyEvent) -> Result<(), Err
             };
 
             // Edit the deferred /trigger-checkin response with the outcome
-            http.set_application_id(application_id.parse::<ApplicationId>()?);
+            http.set_application_id(ApplicationId::new(application_id));
             http.edit_original_interaction_response(
                 &interaction_token,
                 &EditInteractionResponse::new().content(content),

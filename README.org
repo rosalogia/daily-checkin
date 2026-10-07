@@ -91,7 +91,7 @@ The bot runs serverless on AWS and is deployed with SAM (=template.yaml=):
 
 - *Interactions function* (Lambda + Function URL): Discord's Interactions Endpoint. Handles slash commands and button clicks over HTTP; no gateway connection.
 - *Daily function* (Lambda): run every minute by EventBridge Scheduler. When a server's configured time arrives it credits thread replies to the previous post, resets missed streaks, archives the old post, and posts the new one. =/trigger-checkin= invokes it directly.
-- *DynamoDB table*: on-demand, single-table design (see =src/store.rs=).
+- *DynamoDB tables*: on-demand. =guilds= (key =guild_id=) holds each server's config and current daily post; =users= (key =guild_id=, =user_id=) holds goals and streaks. See =src/store.rs=.
 - *SSM Parameter Store*: holds the bot token as a SecureString.
 
 Expected cost is about $0/month within AWS's always-free limits.
@@ -122,10 +122,10 @@ Re-run =register-commands= if commands were added or changed.
 ** Migrating from the VPS
 1. Stop the VPS bot, so it and the Lambda don't both post. Avoid migrating in the 15 minutes after a server's post time: imported servers haven't recorded today's cycle, so the Lambda would post again.
 2. Deploy as above, but don't set the Interactions Endpoint URL yet.
-3. Import the old data file (=TABLE_NAME= is the =TableName= stack output). =--resume-on= is the local date of the first post the Lambda will make; active streaks are carried across the gap so the downtime doesn't reset them. Check the output with =--dry-run= first:
+3. Import the old data file (=GUILDS_TABLE= and =USERS_TABLE= are the =GuildsTableName= and =UsersTableName= stack outputs). =--resume-on= is the local date of the first post the Lambda will make; active streaks are carried across the gap so the downtime doesn't reset them. Check the output with =--dry-run= first:
    #+BEGIN_SRC sh
    cargo run --bin import-data -- bot_data.json --resume-on 2026-10-07 --dry-run
-   TABLE_NAME=... cargo run --bin import-data -- bot_data.json --resume-on 2026-10-07
+   GUILDS_TABLE=... USERS_TABLE=... cargo run --bin import-data -- bot_data.json --resume-on 2026-10-07
    #+END_SRC
    The import must finish before that first post. If go-live slips past it, re-run the import with the new date.
 4. Set the Interactions Endpoint URL and register commands.
@@ -133,8 +133,9 @@ Re-run =register-commands= if commands were added or changed.
 * Technical Requirements
 
 ** Data Storage
-- DynamoDB single table with on-demand billing (see =src/store.rs= for the key layout)
-- Items are serialized with =serde_dynamo= from the structs in =src/data.rs=
+- Two DynamoDB tables with on-demand billing and numeric Discord IDs as keys (see =src/store.rs=)
+- Items are serialized with =serde_dynamo= from the structs in =src/data.rs=, one struct per table
+- Config commands, cycle claims, and daily posts each update only their own attributes of a guild item, so they can't overwrite each other
 - Check-ins and streak resets use optimistic locking so concurrent updates can't double-count
 - Each daily cycle is claimed with a conditional write so it runs once even if the scheduler fires twice
 
@@ -147,6 +148,7 @@ Re-run =register-commands= if commands were added or changed.
 
 ** Streak Logic
 - Count consecutive days with a button press or thread response within 24-hour window
+- The button always counts; thread responses count unless the user turned them off with ~/thread-checkins~
 - Reset to 0 for missed days (unless 30+ day grace period applies)
 - Grace period: Allow up to 2 missed days for streaks ≥30 days
 - Automatic streak maintenance when daily posts are created
@@ -160,6 +162,7 @@ Re-run =register-commands= if commands were added or changed.
 | ~/edit-goal~           | Modify existing goal                             | All users   |
 | ~/deregister~          | Remove from daily check-ins                      | All users   |
 | ~/stats~               | View goal, streaks, and status (self or others)  | All users   |
+| ~/thread-checkins~     | Choose whether your thread replies count         | All users   |
 | ~/set-checkin-channel~ | Configure daily post channel                     | Admin only  |
 | ~/set-checkin-time~    | Configure daily post time & timezone             | Admin only  |
 | ~/trigger-checkin~     | Post the daily check-in immediately              | Bot owner   |

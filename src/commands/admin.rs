@@ -47,14 +47,14 @@ pub async fn set_channel(
     let channel_id = get_channel_option(command, "channel")?;
     
     // Get existing server config or create new one
-    let mut server_config = app.store.get_config(&guild_id).await?
-        .unwrap_or_else(|| ServerConfig::new(guild_id.clone()));
+    let mut server_config = app.store.get_config(guild_id).await?
+        .unwrap_or_else(|| ServerConfig::new(guild_id));
 
     // Update the channel ID and timestamp
-    server_config.checkin_channel_id = Some(channel_id.to_string());
+    server_config.checkin_channel_id = Some(channel_id.get());
     server_config.updated_at = Utc::now();
 
-    if let Err(e) = app.store.put_config(&server_config).await {
+    if let Err(e) = app.store.save_config(&server_config).await {
         error!("Failed to save data after setting checkin channel: {}", e);
         return Ok(default_response("Failed to save configuration. Please try again."));
     }
@@ -124,8 +124,8 @@ pub async fn set_checkin_time(
     };
     
     // Get existing server config or create new one
-    let mut server_config = app.store.get_config(&guild_id).await?
-        .unwrap_or_else(|| ServerConfig::new(guild_id.clone()));
+    let mut server_config = app.store.get_config(guild_id).await?
+        .unwrap_or_else(|| ServerConfig::new(guild_id));
 
     // Update the time and timezone
     server_config.daily_time = validated_time.clone();
@@ -134,7 +134,7 @@ pub async fn set_checkin_time(
     }
     server_config.updated_at = Utc::now();
 
-    if let Err(e) = app.store.put_config(&server_config).await {
+    if let Err(e) = app.store.save_config(&server_config).await {
         error!("Failed to save data after setting checkin time: {}", e);
         return Ok(default_response("Failed to save configuration. Please try again."));
     }
@@ -171,7 +171,7 @@ pub async fn trigger_checkin(
     let guild_id = get_guild_id(command)?;
 
     // Get server configuration
-    let channel_id = match app.store.get_config(&guild_id).await? {
+    let channel_id = match app.store.get_config(guild_id).await? {
         Some(config) => {
             match config.checkin_channel_id {
                 Some(id) => id,
@@ -186,7 +186,7 @@ pub async fn trigger_checkin(
     let event = DailyEvent::Manual {
         guild_id,
         channel_id,
-        application_id: command.application_id.to_string(),
+        application_id: command.application_id.get(),
         interaction_token: command.token.clone(),
     };
     if let Err(e) = app.trigger_daily(&event).await {

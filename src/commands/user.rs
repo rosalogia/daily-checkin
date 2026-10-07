@@ -52,6 +52,19 @@ pub fn stats_command() -> CreateCommand {
         )
 }
 
+pub fn thread_checkins_command() -> CreateCommand {
+    CreateCommand::new("thread-checkins")
+        .description("Choose whether your replies in the daily thread count as check-ins")
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::Boolean,
+                "enabled",
+                "Whether thread replies count toward your streak (the button always counts)"
+            )
+            .required(true)
+        )
+}
+
 pub async fn register_goal(
     app: &App,
     command: &CommandInteraction,
@@ -72,7 +85,7 @@ pub async fn register_goal(
     let is_update;
 
     // Update or create user data
-    let user_data = match app.store.get_user(&guild_id, &user_id).await? {
+    let user_data = match app.store.get_user(guild_id, user_id).await? {
         Some(mut existing_user) => {
             if existing_user.is_active {
                 // Update existing active user - preserve all streak data
@@ -95,21 +108,22 @@ pub async fn register_goal(
             // Create new user
             is_update = false;
             UserData {
-                user_id: user_id.clone(),
+                guild_id,
+                user_id,
                 goal: goal.clone(),
                 current_streak: 0,
                 longest_streak: 0,
                 last_checkin_date: None,
                 grace_period_start: None,
                 is_active: true,
-                has_used_reaction_checkin: false,
+                thread_checkins: true,
                 created_at: now,
                 updated_at: now,
             }
         }
     };
 
-    if let Err(e) = app.store.put_user(&guild_id, &user_data).await {
+    if let Err(e) = app.store.put_user(&user_data).await {
         error!("Failed to save user data: {}", e);
         return Ok(responses::default_response("Failed to save your goal. Please try again."));
     }
@@ -148,7 +162,7 @@ pub async fn deregister(
     info!("Deregister command executed by user {}", user_id);
 
     // Deactivate user (preserve data for potential re-registration)
-    let mut existing_user = match app.store.get_user(&guild_id, &user_id).await? {
+    let mut existing_user = match app.store.get_user(guild_id, user_id).await? {
         Some(user) if user.is_active => user,
         _ => return Err(serenity::Error::Other("You're not currently registered for daily check-ins").into()),
     };
@@ -157,7 +171,7 @@ pub async fn deregister(
     existing_user.is_active = false;
     existing_user.updated_at = Utc::now();
 
-    if let Err(e) = app.store.put_user(&guild_id, &existing_user).await {
+    if let Err(e) = app.store.put_user(&existing_user).await {
         error!("Failed to save user data: {}", e);
         return Ok(responses::default_response("Failed to remove your registration. Please try again."));
     }
@@ -181,7 +195,7 @@ pub async fn stats(
     let (target_user_id, is_self) = command.data.options.iter()
         .find(|opt| opt.name == "user")
         .and_then(|opt| match &opt.value {
-            CommandDataOptionValue::User(user_id) => Some((user_id.to_string(), *user_id == command.user.id)),
+            CommandDataOptionValue::User(user_id) => Some((user_id.get(), *user_id == command.user.id)),
             _ => None,
         })
         .unwrap_or_else(|| (command_helpers::get_user_id(command), true));
@@ -189,7 +203,7 @@ pub async fn stats(
     info!("Stats command executed by user {} for user {}", command_helpers::get_user_id(command), target_user_id);
 
     // Get user data
-    let user = match app.store.get_user(&guild_id, &target_user_id).await? {
+    let user = match app.store.get_user(guild_id, target_user_id).await? {
         Some(user) if user.is_active => user,
         _ => {
             let msg = if is_self {
@@ -226,7 +240,7 @@ pub async fn stats(
         .field("🏆 Longest Streak", format!("{} days", user.longest_streak), true);
 
     // Check-in status field
-    let checkin_status = if let Some(daily_post) = app.store.get_post(&guild_id).await? {
+    let checkin_status = if let Some(daily_post) = app.store.get_post(guild_id).await? {
         let post_date = daily_post.posted_at.date_naive();
         let now = Utc::now();
 
@@ -257,4 +271,35 @@ pub async fn stats(
 
     info!("Successfully displayed stats for user {} in guild {}", target_user_id, guild_id);
     Ok(responses::embed_response(embed))
+}
+
+pub async fn thread_checkins(
+    app: &App,
+    command: &CommandInteraction,
+) -> Result<CreateInteractionResponse, Error> {
+    let user_id = command_helpers::get_user_id(command);
+    let guild_id = command_helpers::get_guild_id(command)?;
+    let enabled = command_helpers::get_bool_option(command, "enabled")?;
+
+    info!("Thread checkins command executed by user {} (enabled: {})", user_id, enabled);
+
+    let mut user = match app.store.get_user(guild_id, user_id).await? {
+        Some(user) if user.is_active => user,
+        _ => return Err(serenity::Error::Other("You're not currently registered for daily check-ins. Use `/register-goal` to get started!").into()),
+    };
+
+    user.thread_checkins = enabled;
+    user.updated_at = Utc::now();
+
+    if let Err(e) = app.store.put_user(&user).await {
+        error!("Failed to save user data: {}", e);
+        return Ok(responses::ephemeral_response("Failed to save your setting. Please try again."));
+    }
+
+    let message = if enabled {
+        "Your replies in the daily thread will now count as check-ins. The 🔥 **Check in** button still works too."
+    } else {
+        "Your replies in the daily thread will no longer count as check-ins. Use the 🔥 **Check in** button to keep your streak."
+    };
+    Ok(responses::ephemeral_response(message))
 }

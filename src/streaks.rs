@@ -18,8 +18,8 @@ pub const CHECKIN_BUTTON_ID: &str = "daily-checkin";
 pub enum CheckinOutcome {
     CheckedIn { streak: u32 },
     AlreadyCheckedIn,
-    /// Thread reply from a user who has switched to button-only check-ins
-    UsesButton,
+    /// Thread reply from a user who has turned off thread check-ins
+    ThreadCheckinsDisabled,
     Inactive,
     NotRegistered,
 }
@@ -35,9 +35,9 @@ impl StreakManager {
 
     /// Credit check-ins for replies in a daily post's thread.
     /// Runs before the next daily post, since thread messages are read in a batch rather than live.
-    pub async fn process_thread_replies(&self, http: &Http, post: &DailyPost) -> Result<u32, Error> {
-        let thread_id: ChannelId = match &post.thread_id {
-            Some(id) => id.parse()?,
+    pub async fn process_thread_replies(&self, http: &Http, guild_id: u64, post: &DailyPost) -> Result<u32, Error> {
+        let thread_id = match post.thread_id {
+            Some(id) => ChannelId::new(id),
             None => return Ok(0),
         };
         let deadline = post.posted_at + Duration::hours(24);
@@ -76,8 +76,8 @@ impl StreakManager {
 
         let mut credited = 0;
         for (user_id, message_time) in first_replies {
-            info!("Processing thread check-in from user {} in guild {}", user_id, post.guild_id);
-            if let CheckinOutcome::CheckedIn { .. } = self.record_checkin(post, &user_id.to_string(), &message_time, false).await? {
+            info!("Processing thread check-in from user {} in guild {}", user_id, guild_id);
+            if let CheckinOutcome::CheckedIn { .. } = self.record_checkin(guild_id, post, user_id.get(), &message_time, false).await? {
                 credited += 1;
             }
         }
@@ -88,22 +88,23 @@ impl StreakManager {
     /// Process a click on the daily post's check-in button, returning the ephemeral reply text
     pub async fn process_button(&self, component: &ComponentInteraction) -> Result<String, Error> {
         let guild_id = match component.guild_id {
-            Some(id) => id.to_string(),
+            Some(id) => id.get(),
             None => return Ok("Check-ins only work inside a server.".to_string()),
         };
 
         // Check if the button is on the current daily post within 24 hours
         let click_time = Utc::now();
-        let post = match self.store.get_post(&guild_id).await? {
-            Some(post) if post.message_id == component.message.id.to_string()
+        let post = match self.store.get_post(guild_id).await? {
+            Some(post) if post.message_id == component.message.id.get()
                 && click_time <= post.posted_at + Duration::hours(24) => post,
             _ => return Ok("This check-in post has expired. Use the latest daily post!".to_string()),
         };
 
         info!("Processing check-in button from user {} in guild {}", component.user.id, guild_id);
-        let reply = match self.record_checkin(&post, &component.user.id.to_string(), &click_time, true).await? {
+        let reply = match self.record_checkin(guild_id, &post, component.user.id.get(), &click_time, true).await? {
             CheckinOutcome::CheckedIn { streak } => format!("✅ Checked in! Your streak is now 🔥**{}**", streak),
-            CheckinOutcome::AlreadyCheckedIn | CheckinOutcome::UsesButton => "You've already checked in today.".to_string(),
+            // ThreadCheckinsDisabled only applies to thread replies, never the button
+            CheckinOutcome::AlreadyCheckedIn | CheckinOutcome::ThreadCheckinsDisabled => "You've already checked in today.".to_string(),
             CheckinOutcome::Inactive | CheckinOutcome::NotRegistered => {
                 "You're not registered for daily check-ins. Use `/register-goal` to join!".to_string()
             }
@@ -115,12 +116,12 @@ impl StreakManager {
     /// Record a check-in against a daily post and update the user's streak
     async fn record_checkin(
         &self,
+        guild_id: u64,
         post: &DailyPost,
-        user_id: &str,
+        user_id: u64,
         message_time: &chrono::DateTime<Utc>,
         via_button: bool,
     ) -> Result<CheckinOutcome, Error> {
-        let guild_id = &post.guild_id;
         let post_date = post.posted_at.date_naive();
         let response_date = message_time.date_naive();
 
@@ -138,10 +139,10 @@ impl StreakManager {
                 }
             };
 
-            // Skip thread replies from users who have switched to button-only check-ins
-            if !via_button && user.has_used_reaction_checkin {
-                debug!("User {} uses button check-ins, ignoring thread replies in guild {}", user_id, guild_id);
-                return Ok(CheckinOutcome::UsesButton);
+            // Skip thread replies from users who have turned off thread check-ins
+            if !via_button && !user.thread_checkins {
+                debug!("User {} has thread check-ins off, ignoring thread replies in guild {}", user_id, guild_id);
+                return Ok(CheckinOutcome::ThreadCheckinsDisabled);
             }
 
             // If they already checked in on or after the day this post was created, skip
@@ -152,17 +153,11 @@ impl StreakManager {
 
             let read_updated_at = user.updated_at;
 
-            // Mark user as having used button check-in (opts them out of thread-reply check-ins)
-            if via_button && !user.has_used_reaction_checkin {
-                user.has_used_reaction_checkin = true;
-                info!("User {} in guild {} has switched to button-only check-ins", user_id, guild_id);
-            }
-
             // Update user streak
             Self::update_user_streak(&mut user, response_date);
             user.updated_at = Utc::now();
 
-            if self.store.put_user_if_unchanged(guild_id, &user, read_updated_at).await? {
+            if self.store.put_user_if_unchanged(&user, read_updated_at).await? {
                 info!("User {} checked in! New streak: {} days", user_id, user.current_streak);
                 return Ok(CheckinOutcome::CheckedIn { streak: user.current_streak });
             }
@@ -243,7 +238,7 @@ impl StreakManager {
     }
 
     /// Reset streaks for users in a guild who missed yesterday's check-in
-    pub async fn reset_streaks_for_guild(&self, guild_id: &str) -> Result<u32, Error> {
+    pub async fn reset_streaks_for_guild(&self, guild_id: u64) -> Result<u32, Error> {
         let yesterday = Utc::now().date_naive().pred_opt().unwrap_or(Utc::now().date_naive());
         let mut reset_count = 0;
 
@@ -264,7 +259,7 @@ impl StreakManager {
                         user.updated_at = Utc::now();
 
                         // If the user changed concurrently (e.g. just checked in), leave them alone
-                        if self.store.put_user_if_unchanged(guild_id, &user, read_updated_at).await? {
+                        if self.store.put_user_if_unchanged(&user, read_updated_at).await? {
                             reset_count += 1;
                             info!("Reset streak for user {} in guild {} due to missed check-in", user.user_id, guild_id);
                         } else {
@@ -310,14 +305,15 @@ mod tests {
 
     fn user(current_streak: u32, last_checkin: &str, is_active: bool) -> UserData {
         UserData {
-            user_id: "1".to_string(),
+            guild_id: 1,
+            user_id: 1,
             goal: "goal".to_string(),
             current_streak,
             longest_streak: current_streak,
             last_checkin_date: Some(last_checkin.parse().unwrap()),
             grace_period_start: None,
             is_active,
-            has_used_reaction_checkin: false,
+            thread_checkins: true,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -349,6 +345,18 @@ mod tests {
     fn bridge_skips_broken_and_inactive_streaks() {
         assert!(!StreakManager::bridge_outage(&mut user(0, "2026-03-22", true), date("2026-10-08")));
         assert!(!StreakManager::bridge_outage(&mut user(13, "2026-03-06", false), date("2026-10-08")));
+    }
+
+    #[test]
+    fn thread_checkins_default_on_for_existing_users() {
+        // Users saved before the setting existed, including those auto-opted-out by the old
+        // reaction/button flag, count thread replies again
+        let json = r#"{"guild_id":1,"user_id":1,"goal":"g","current_streak":3,"longest_streak":3,
+            "last_checkin_date":"2026-10-06","grace_period_start":null,"is_active":true,
+            "has_used_reaction_checkin":true,
+            "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#;
+        let user: UserData = serde_json::from_str(json).unwrap();
+        assert!(user.thread_checkins);
     }
 
     #[test]

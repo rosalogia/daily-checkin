@@ -11,18 +11,18 @@ use chrono_tz::Tz;
 /// * `command` - The Discord command interaction
 /// 
 /// # Returns
-/// * `Ok(String)` - The guild ID as a string
+/// * `Ok(u64)` - The guild ID
 /// * `Err(serenity::Error)` - If the command was not executed in a server
 /// 
 /// # Example
 /// ```ignore
 /// let guild_id = get_guild_id(command)?;
 /// ```
-pub fn get_guild_id(command: &CommandInteraction) -> serenity::Result<String> {
+pub fn get_guild_id(command: &CommandInteraction) -> serenity::Result<u64> {
     command
         .guild_id
         .ok_or_else(|| serenity::Error::Other("This command can only be used in a server"))
-        .map(|id| id.to_string())
+        .map(|id| id.get())
 }
 
 /// Extracts the user ID from a Discord command interaction.
@@ -33,14 +33,14 @@ pub fn get_guild_id(command: &CommandInteraction) -> serenity::Result<String> {
 /// * `command` - The Discord command interaction
 /// 
 /// # Returns
-/// * `String` - The user ID as a string
+/// * `u64` - The user ID
 /// 
 /// # Example
 /// ```ignore
 /// let user_id = get_user_id(command);
 /// ```
-pub fn get_user_id(command: &CommandInteraction) -> String {
-    command.user.id.to_string()
+pub fn get_user_id(command: &CommandInteraction) -> u64 {
+    command.user.id.get()
 }
 
 /// Extracts a string option value from a Discord command interaction.
@@ -75,6 +75,34 @@ pub fn get_string_option(command: &CommandInteraction, name: &str) -> serenity::
             }
         }
         _ => Err(serenity::Error::Other("Argument is not a string")),
+    }
+}
+
+/// Extracts a boolean option value from a Discord command interaction.
+/// 
+/// # Arguments
+/// * `command` - The Discord command interaction
+/// * `name` - The name of the option to extract
+/// 
+/// # Returns
+/// * `Ok(bool)` - The value of the option
+/// * `Err(serenity::Error)` - If the option is missing or not a boolean
+/// 
+/// # Example
+/// ```ignore
+/// let enabled = get_bool_option(command, "enabled")?;
+/// ```
+pub fn get_bool_option(command: &CommandInteraction, name: &str) -> serenity::Result<bool> {
+    let option = command
+        .data
+        .options
+        .iter()
+        .find(|opt| opt.name == name)
+        .ok_or_else(|| serenity::Error::Other("Missing required argument"))?;
+
+    match &option.value {
+        CommandDataOptionValue::Boolean(b) => Ok(*b),
+        _ => Err(serenity::Error::Other("Argument is not a boolean")),
     }
 }
 

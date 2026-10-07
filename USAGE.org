@@ -151,6 +151,14 @@ Streak expires: in 8 hours
 
 Note: Time remaining uses Discord's dynamic timestamp feature, so it updates automatically and displays relative to the viewer's local time.
 
+*** Choose Whether Thread Replies Count
+#+BEGIN_EXAMPLE
+/thread-checkins enabled:True
+/thread-checkins enabled:False
+#+END_EXAMPLE
+
+By default, replying in the daily thread counts as a check-in. Turn this off if you want to chat in the thread without it counting toward your streak; the 🔥 *Check in* button always counts either way. Only you see the confirmation.
+
 *Example output (viewing another user's stats):*
 #+BEGIN_EXAMPLE
 User Stats
@@ -208,9 +216,7 @@ Time to check in!
 You have TWO ways to check in each day:
 
 *** Method 1: Press the 🔥 Check in Button
-Press the *Check in* button on the daily post. The bot privately confirms your check-in and shows your new streak. This is perfect for days when you don't have much to say but want to maintain your streak.
-
-Once you use the button, it becomes your check-in method: your thread replies are no longer counted, so remember to press it each day.
+Press the *Check in* button on the daily post. The bot privately confirms your check-in and shows your new streak. This is perfect for days when you don't have much to say but want to maintain your streak. The button always counts.
 
 *** Method 2: Reply in the Thread
 Reply to the daily thread with any message about your progress:
@@ -226,6 +232,8 @@ Reply to the daily thread with any message about your progress:
 *Any response counts* - there's no content validation. The bot just tracks that you participated.
 
 Thread replies are counted when the next daily post goes out, so =/stats= won't show a reply-based check-in until then.
+
+If you'd rather chat in the thread without it counting as a check-in, turn thread check-ins off with =/thread-checkins enabled:False= and use the button instead.
 
 *Note:* You only need to use ONE method per day. If you both press the button and reply, it still only counts as one check-in.
 
@@ -291,7 +299,7 @@ Admins can monitor:
 *Possible reasons:*
 1. Responded outside the 24-hour window
 2. Used wrong method (must press the button on the daily post OR reply in the daily thread)
-3. Replied in the thread after switching to the button (once you use the button, only the button counts)
+3. Replied in the thread with thread check-ins turned off (check with =/thread-checkins=)
 4. Replied in the thread and the next daily post hasn't gone out yet (replies are counted then)
 5. Already responded to this daily post cycle
 6. Not registered with =/register-goal=
