@@ -15,11 +15,8 @@
           inherit system overlays;
         };
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" ];
-          # Lambda runs on Graviton (arm64)
-          targets = [ "aarch64-unknown-linux-gnu" ];
-        };
+        # Shared with CI via rust-toolchain.toml
+        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
       in
       {

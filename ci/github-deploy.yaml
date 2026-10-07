@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Lets GitHub Actions deploy the daily-checkin stack using OIDC (no stored AWS keys).
+  Deploy once by hand; see README.org.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: rosalogia/daily-checkin
+    Description: owner/name of the repository allowed to deploy
+  AppStackName:
+    Type: String
+    Default: daily-checkin
+    Description: Name of the application stack CI deploys
+  DiscordTokenParameter:
+    Type: String
+    Default: /daily-checkin/discord-token
+    Description: SSM parameter holding the bot token (read when registering slash commands)
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  # Assumed by the workflow. It can only drive CloudFormation for the app stack, upload
+  # build artifacts, and read the bot token; CloudFormation does the rest using the
+  # execution role below.
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AppStackName}-github-deploy
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                # Only workflows running on main
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/main
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStackResources
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AppStackName}/*
+              - Effect: Allow
+                Action: cloudformation:CreateChangeSet
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
+              - Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:GetTemplateSummary
+                Resource: '*'
+              # sam deploy --resolve-s3 looks up its managed artifacts bucket
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/aws-sam-cli-managed-default/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub arn:${AWS::Partition}:s3:::aws-sam-cli-managed-default-samclisourcebucket-*
+                  - !Sub arn:${AWS::Partition}:s3:::aws-sam-cli-managed-default-samclisourcebucket-*/*
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationExecutionRole.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DiscordTokenParameter}
+
+  # Used by CloudFormation to create and update the app stack's resources
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AppStackName}-cfn-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: manage-app-resources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:*
+                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AppStackName}-*
+              - Effect: Allow
+                Action: dynamodb:*
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppStackName}-*
+              - Effect: Allow
+                Action: iam:*
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${AppStackName}-*
+              - Effect: Allow
+                Action: scheduler:*
+                Resource: !Sub arn:${AWS::Partition}:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/*
+              - Effect: Allow
+                Action: logs:*
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AppStackName}-*
+              - Effect: Allow
+                Action: logs:DescribeLogGroups
+                Resource: '*'
+              # Lambda reads deployment packages uploaded by sam deploy
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::aws-sam-cli-managed-default-samclisourcebucket-*/*
+
+Outputs:
+  DeployRoleArn:
+    Description: Repository variable AWS_DEPLOY_ROLE_ARN
+    Value: !GetAtt DeployRole.Arn
+  CloudFormationExecutionRoleArn:
+    Description: Repository variable CFN_EXECUTION_ROLE_ARN
+    Value: !GetAtt CloudFormationExecutionRole.Arn

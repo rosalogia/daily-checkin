@@ -16,6 +16,7 @@
   - [[#architecture][Architecture]]
   - [[#first-time-setup][First-time Setup]]
   - [[#updating][Updating]]
+  - [[#cicd][CI/CD]]
   - [[#migrating-from-the-vps][Migrating from the VPS]]
 - [[#technical-requirements][Technical Requirements]]
   - [[#data-storage][Data Storage]]
@@ -103,9 +104,9 @@ All tools come from the dev shell (=nix develop=, or =direnv allow=).
    #+BEGIN_SRC sh
    aws ssm put-parameter --name /daily-checkin/discord-token --type SecureString --value "$DISCORD_TOKEN"
    #+END_SRC
-2. Build and deploy. =--guided= prompts for the Discord application's public key (General Information page) and saves your answers to =samconfig.toml=:
+2. Set =DiscordPublicKey= in =samconfig.toml= to the Discord application's public key (General Information page), then build and deploy:
    #+BEGIN_SRC sh
-   sam build && sam deploy --guided
+   sam build && sam deploy
    #+END_SRC
 3. Copy the =InteractionsEndpointUrl= stack output into the Discord application's *Interactions Endpoint URL* and save. Discord sends a signed ping to verify it.
 4. Register slash commands (reads =DISCORD_TOKEN= from =.env=; see =.env.example=):
@@ -114,10 +115,28 @@ All tools come from the dev shell (=nix develop=, or =direnv allow=).
    #+END_SRC
 
 ** Updating
+Pushing to =main= deploys automatically (see below). To deploy by hand:
 #+BEGIN_SRC sh
 sam build && sam deploy
 #+END_SRC
 Re-run =register-commands= if commands were added or changed.
+
+** CI/CD
+GitHub Actions (=.github/workflows/ci.yml=) tests, lints the template, and builds the Lambda binaries on every pull request and push. On pushes to =main=, once that passes, it deploys the stack and re-registers slash commands. Deploys never run concurrently.
+
+The workflow authenticates to AWS with GitHub's OIDC tokens, so no AWS keys are stored in GitHub. =ci/github-deploy.yaml= sets this up and was deployed once by hand:
+#+BEGIN_SRC sh
+aws cloudformation deploy --stack-name daily-checkin-github-deploy \
+  --template-file ci/github-deploy.yaml --capabilities CAPABILITY_NAMED_IAM
+#+END_SRC
+It creates:
+- the GitHub OIDC identity provider
+- =daily-checkin-github-deploy=: assumable only by workflows on =main= of this repo; can only run CloudFormation on this stack, upload build artifacts, and read the bot token
+- =daily-checkin-cfn-execution=: used by CloudFormation to manage the stack's resources, limited to =daily-checkin-*= resources
+
+Its two role ARNs are stored as the repository variables =AWS_DEPLOY_ROLE_ARN= and =CFN_EXECUTION_ROLE_ARN=.
+
+The Rust version is pinned in =rust-toolchain.toml=, which both the Nix dev shell and CI use, and =Cargo.lock= is committed so CI builds the same dependency versions as local builds.
 
 ** Migrating from the VPS
 1. Stop the VPS bot, so it and the Lambda don't both post. Avoid migrating in the 15 minutes after a server's post time: imported servers haven't recorded today's cycle, so the Lambda would post again.
