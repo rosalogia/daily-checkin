@@ -51,7 +51,6 @@ The bot needs these permissions to function properly:
 - Mention Everyone (for daily pings)
 - Use Slash Commands
 - Read Message History
-- Add Reactions
 
 ** Initial Server Configuration
 
@@ -176,11 +175,11 @@ If you use =/register-goal= again after being registered:
 ** How Daily Check-ins Work
 
 1. **Daily Post**: The bot automatically posts a daily message as a Discord embed at your configured time
-2. **Fire Reaction**: The bot adds a 🔥 reaction to the daily post as a hint that users can react to check in
+2. **Check-in Button**: The daily post has a 🔥 *Check in* button
 3. **Thread Creation**: A thread is created under each daily post with the date (e.g., "Daily Check-in Responses 11/17/25")
 4. **User Notifications**: All registered users are pinged in the thread to ensure they receive notifications
 5. **Response Window**: Users have 24 hours from the daily post creation to respond
-6. **Streak Tracking**: Either reacting with 🔥 to the post OR replying in the thread counts toward your daily streak
+6. **Streak Tracking**: Either pressing the 🔥 *Check in* button OR replying in the thread counts toward your daily streak
 
 ** Sample Daily Message
 The daily message appears as a Discord embed:
@@ -208,8 +207,10 @@ Time to check in!
 ** How to Check In
 You have TWO ways to check in each day:
 
-*** Method 1: React with 🔥
-Simply react to the daily post message with the 🔥 (fire) emoji. This is perfect for days when you don't have much to say but want to maintain your streak.
+*** Method 1: Press the 🔥 Check in Button
+Press the *Check in* button on the daily post. The bot privately confirms your check-in and shows your new streak. This is perfect for days when you don't have much to say but want to maintain your streak.
+
+Once you use the button, it becomes your check-in method: your thread replies are no longer counted, so remember to press it each day.
 
 *** Method 2: Reply in the Thread
 Reply to the daily thread with any message about your progress:
@@ -224,7 +225,9 @@ Reply to the daily thread with any message about your progress:
 
 *Any response counts* - there's no content validation. The bot just tracks that you participated.
 
-*Note:* You only need to use ONE method per day. If you both react and reply, it still only counts as one check-in.
+Thread replies are counted when the next daily post goes out, so =/stats= won't show a reply-based check-in until then.
+
+*Note:* You only need to use ONE method per day. If you both press the button and reply, it still only counts as one check-in.
 
 * Streak System
 
@@ -287,10 +290,11 @@ Admins can monitor:
 *** My Response Didn't Count
 *Possible reasons:*
 1. Responded outside the 24-hour window
-2. Used wrong method (must react to the daily post OR reply in the daily thread)
-3. Reacted with the wrong emoji (must use 🔥 fire emoji)
-4. Already responded to this daily post cycle
-5. Not registered with =/register-goal=
+2. Used wrong method (must press the button on the daily post OR reply in the daily thread)
+3. Replied in the thread after switching to the button (once you use the button, only the button counts)
+4. Replied in the thread and the next daily post hasn't gone out yet (replies are counted then)
+5. Already responded to this daily post cycle
+6. Not registered with =/register-goal=
 
 *** Streak Reset Unexpectedly
 *Common causes:*
@@ -307,7 +311,6 @@ If commands aren't working, verify the bot has:
 - Send Messages
 - Create Public Threads
 - Read Message History
-- Add Reactions
 
 * Best Practices
 
@@ -344,7 +347,7 @@ If commands aren't working, verify the bot has:
 - Message history or conversation data
 
 ** Data Persistence
-- All data is stored locally by the bot operator
+- All data is stored in the bot operator's AWS account (DynamoDB)
 - Re-registration preserves historical data but resets current streak
 - Deregistration marks you as inactive but preserves data
 

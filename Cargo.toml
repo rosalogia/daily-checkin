@@ -5,14 +5,14 @@ edition = "2021"
 
 [dependencies]
 serenity = { version = "0.12", default-features = false, features = [
-    "client",
-    "gateway",
-    "rustls_backend",
+    "builder",
+    "chrono",
+    "http",
+    "interactions_endpoint",
     "model",
-    "cache",
+    "rustls_backend",
 ] }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
-tokio-fs = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.8"
 serde = { version = "1.0", features = ["derive"] }
@@ -20,10 +20,27 @@ serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
-uuid = { version = "1.0", features = ["v4"] }
 dotenv = "0.15"
-cron = "0.12"
+aws-sdk-dynamodb = "1"
+aws-sdk-ssm = "1"
+aws-sdk-lambda = "1"
+serde_dynamo = { version = "4.3.0", features = ["aws-sdk-dynamodb+1"] }
+lambda_http = "1.3.1"
+lambda_runtime = "1.4.0"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
 
 [[bin]]
-name = "daily-checkin-bot"
-path = "src/main.rs"
+name = "interactions"
+path = "src/bin/interactions.rs"
+
+[[bin]]
+name = "daily"
+path = "src/bin/daily.rs"
+
+[[bin]]
+name = "register-commands"
+path = "src/bin/register_commands.rs"
+
+[[bin]]
+name = "import-data"
+path = "src/bin/import_data.rs"

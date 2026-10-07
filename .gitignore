@@ -24,3 +24,9 @@ result-*
 *.log
 
 bot_data.json
+
+# SAM
+.aws-sam/
+
+# Local migration snapshots and logs (contain user IDs)
+migration_data/

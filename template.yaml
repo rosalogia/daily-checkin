@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Daily check-in Discord bot
+
+Parameters:
+  DiscordPublicKey:
+    Type: String
+    Description: Public key from the Discord application's General Information page
+  DiscordTokenParameter:
+    Type: String
+    Default: /daily-checkin/discord-token
+    Description: Name of the SSM SecureString parameter holding the bot token
+    AllowedPattern: ^/.*
+
+Globals:
+  Function:
+    Runtime: provided.al2023
+    Handler: bootstrap
+    Architectures: [arm64]
+    MemorySize: 128
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref Table
+        RUST_LOG: info
+
+Resources:
+  Table:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: true
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # Discord Interactions Endpoint: slash commands and button clicks
+  InteractionsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Timeout: 10
+      LoggingConfig:
+        LogGroup: !Ref InteractionsLogGroup
+      Environment:
+        Variables:
+          DISCORD_PUBLIC_KEY: !Ref DiscordPublicKey
+          DAILY_FUNCTION_NAME: !Ref DailyFunction
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - LambdaInvokePolicy:
+            FunctionName: !Ref DailyFunction
+      FunctionUrlConfig:
+        AuthType: NONE
+
+  # Public function URLs need lambda:InvokeFunction in addition to the
+  # lambda:InvokeFunctionUrl permission SAM adds for FunctionUrlConfig
+  InteractionsUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref InteractionsFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+  InteractionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-interactions
+      RetentionInDays: 14
+
+  # Daily posting, run every minute by the scheduler and on demand by /trigger-checkin
+  DailyFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Timeout: 120
+      LoggingConfig:
+        LogGroup: !Ref DailyLogGroup
+      Environment:
+        Variables:
+          DISCORD_TOKEN_PARAMETER: !Ref DiscordTokenParameter
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Table
+        - Statement:
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DiscordTokenParameter}
+      # Don't retry failed runs: a retry after a partial success could post twice
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+      Events:
+        EveryMinute:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(1 minute)
+            Input: '{"kind":"scheduled"}'
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+
+  DailyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-daily
+      RetentionInDays: 14
+
+Outputs:
+  InteractionsEndpointUrl:
+    Description: Paste into the Discord application's Interactions Endpoint URL
+    Value: !GetAtt InteractionsFunctionUrl.FunctionUrl
+  TableName:
+    Description: DynamoDB table name (for import-data)
+    Value: !Ref Table

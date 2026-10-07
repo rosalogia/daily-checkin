@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.global.parameters]
+stack_name = "daily-checkin"
+region = "us-east-1"
+
+[default.build.parameters]
+# Build in the project directory so cargo reuses target/ between builds
+build_in_source = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+confirm_changeset = true

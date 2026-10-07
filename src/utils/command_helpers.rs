@@ -1,10 +1,6 @@
-use serenity::{
-    model::{
-        application::{CommandDataOptionValue, CommandInteraction},
-        id::ChannelId,
-        permissions::Permissions,
-    },
-    prelude::*,
+use serenity::model::{
+    application::{CommandDataOptionValue, CommandInteraction},
+    id::ChannelId,
 };
 use chrono::NaiveTime;
 use chrono_tz::Tz;
@@ -19,7 +15,7 @@ use chrono_tz::Tz;
 /// * `Err(serenity::Error)` - If the command was not executed in a server
 /// 
 /// # Example
-/// ```rust
+/// ```ignore
 /// let guild_id = get_guild_id(command)?;
 /// ```
 pub fn get_guild_id(command: &CommandInteraction) -> serenity::Result<String> {
@@ -40,7 +36,7 @@ pub fn get_guild_id(command: &CommandInteraction) -> serenity::Result<String> {
 /// * `String` - The user ID as a string
 /// 
 /// # Example
-/// ```rust
+/// ```ignore
 /// let user_id = get_user_id(command);
 /// ```
 pub fn get_user_id(command: &CommandInteraction) -> String {
@@ -58,7 +54,7 @@ pub fn get_user_id(command: &CommandInteraction) -> String {
 /// * `Err(serenity::Error)` - If the option is missing, empty, or not a string
 /// 
 /// # Example
-/// ```rust
+/// ```ignore
 /// let goal = get_string_option(command, "goal")?;
 /// ```
 pub fn get_string_option(command: &CommandInteraction, name: &str) -> serenity::Result<String> {
@@ -93,7 +89,7 @@ pub fn get_string_option(command: &CommandInteraction, name: &str) -> serenity::
 /// * `Err(serenity::Error)` - If the option is missing or not a channel
 /// 
 /// # Example
-/// ```rust
+/// ```ignore
 /// let channel_id = get_channel_option(command, "channel")?;
 /// ```
 pub fn get_channel_option(command: &CommandInteraction, name: &str) -> serenity::Result<ChannelId> {
@@ -111,45 +107,28 @@ pub fn get_channel_option(command: &CommandInteraction, name: &str) -> serenity:
 }
 
 /// Checks if a user has administrator permissions in the guild.
-/// 
+///
+/// Uses the member's resolved permissions that Discord includes in the interaction payload
+/// (guild owners always have every permission), so no API calls are needed.
+///
 /// # Arguments
-/// * `ctx` - The Discord context
 /// * `command` - The Discord command interaction
-/// 
+///
 /// # Returns
-/// * `Ok(bool)` - Whether the user has admin permissions
-/// * `Err(serenity::Error)` - If permission check fails
-/// 
+/// * `bool` - Whether the user has admin permissions
+///
 /// # Example
-/// ```rust
-/// if !is_admin(ctx, command).await? {
-///     return Ok(error_response("This command requires administrator permissions."));
+/// ```ignore
+/// if !is_admin(command) {
+///     return Ok(default_response("This command requires administrator permissions."));
 /// }
 /// ```
-pub async fn is_admin(ctx: &Context, command: &CommandInteraction) -> serenity::Result<bool> {
-    let guild_id = command
-        .guild_id
-        .ok_or_else(|| serenity::Error::Other("This command can only be used in a server"))?;
-    
-    // Get the guild and member info from HTTP API (not cache-dependent)
-    let guild = ctx.http.get_guild(guild_id).await?;
-    let member = guild_id.member(&ctx.http, command.user.id).await?;
-    
-    // Check if user is the guild owner (owners always have admin)
-    if guild.owner_id == command.user.id {
-        return Ok(true);
-    }
-    
-    // Check if any of the user's roles have administrator permission
-    for role_id in &member.roles {
-        if let Some(role) = guild.roles.get(role_id) {
-            if role.permissions.contains(Permissions::ADMINISTRATOR) {
-                return Ok(true);
-            }
-        }
-    }
-    
-    Ok(false)
+pub fn is_admin(command: &CommandInteraction) -> bool {
+    command
+        .member
+        .as_ref()
+        .and_then(|member| member.permissions)
+        .is_some_and(|permissions| permissions.administrator())
 }
 
 /// Validates and parses a timezone string.
@@ -162,7 +141,7 @@ pub async fn is_admin(ctx: &Context, command: &CommandInteraction) -> serenity::
 /// * `Err(serenity::Error)` - If the timezone is invalid
 /// 
 /// # Example
-/// ```rust
+/// ```ignore
 /// let tz = validate_timezone("America/New_York")?;
 /// ```
 pub fn validate_timezone(timezone_str: &str) -> serenity::Result<String> {
@@ -183,7 +162,7 @@ pub fn validate_timezone(timezone_str: &str) -> serenity::Result<String> {
 /// * `Err(serenity::Error)` - If the time format is invalid
 /// 
 /// # Example
-/// ```rust
+/// ```ignore
 /// let time = validate_time_format("09:30")?;
 /// ```
 pub fn validate_time_format(time_str: &str) -> serenity::Result<String> {

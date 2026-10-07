@@ -9,3 +9,8 @@ pub fn embed_response(embed: CreateEmbed) -> CreateInteractionResponse {
     let data = CreateInteractionResponseMessage::new().add_embed(embed);
     CreateInteractionResponse::Message(data)
 }
+
+pub fn ephemeral_response(message: &str) -> CreateInteractionResponse {
+    let data = CreateInteractionResponseMessage::new().content(message).ephemeral(true);
+    CreateInteractionResponse::Message(data)
+}

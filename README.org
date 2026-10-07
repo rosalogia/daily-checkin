@@ -12,6 +12,11 @@
   - [[#daily-interaction][Daily Interaction]]
   - [[#goal-management][Goal Management]]
   - [[#administrative-setup][Administrative Setup]]
+- [[#deployment][Deployment]]
+  - [[#architecture][Architecture]]
+  - [[#first-time-setup][First-time Setup]]
+  - [[#updating][Updating]]
+  - [[#migrating-from-the-vps][Migrating from the VPS]]
 - [[#technical-requirements][Technical Requirements]]
   - [[#data-storage][Data Storage]]
   - [[#bot-permissions][Bot Permissions]]
@@ -68,8 +73,8 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 ** Daily Interaction
 1. Bot posts daily message at configured time
 2. Message pings all registered users with their current streaks
-3. Users respond in the created thread
-4. Bot tracks responses and updates streaks accordingly
+3. Users press the 🔥 *Check in* button or reply in the created thread
+4. Button check-ins count immediately; thread replies are counted when the next daily post goes out
 
 ** Goal Management
 - ~/edit-goal~: Modify existing goal text
@@ -79,24 +84,69 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 - ~/set-checkin-channel~: Configure where daily posts appear
 - Timezone configuration per server
 
+* Deployment
+
+** Architecture
+The bot runs serverless on AWS and is deployed with SAM (=template.yaml=):
+
+- *Interactions function* (Lambda + Function URL): Discord's Interactions Endpoint. Handles slash commands and button clicks over HTTP; no gateway connection.
+- *Daily function* (Lambda): run every minute by EventBridge Scheduler. When a server's configured time arrives it credits thread replies to the previous post, resets missed streaks, archives the old post, and posts the new one. =/trigger-checkin= invokes it directly.
+- *DynamoDB table*: on-demand, single-table design (see =src/store.rs=).
+- *SSM Parameter Store*: holds the bot token as a SecureString.
+
+Expected cost is about $0/month within AWS's always-free limits.
+
+** First-time Setup
+All tools come from the dev shell (=nix develop=, or =direnv allow=).
+
+1. Store the bot token in SSM:
+   #+BEGIN_SRC sh
+   aws ssm put-parameter --name /daily-checkin/discord-token --type SecureString --value "$DISCORD_TOKEN"
+   #+END_SRC
+2. Build and deploy. =--guided= prompts for the Discord application's public key (General Information page) and saves your answers to =samconfig.toml=:
+   #+BEGIN_SRC sh
+   sam build && sam deploy --guided
+   #+END_SRC
+3. Copy the =InteractionsEndpointUrl= stack output into the Discord application's *Interactions Endpoint URL* and save. Discord sends a signed ping to verify it.
+4. Register slash commands (reads =DISCORD_TOKEN= from =.env=; see =.env.example=):
+   #+BEGIN_SRC sh
+   cargo run --bin register-commands
+   #+END_SRC
+
+** Updating
+#+BEGIN_SRC sh
+sam build && sam deploy
+#+END_SRC
+Re-run =register-commands= if commands were added or changed.
+
+** Migrating from the VPS
+1. Stop the VPS bot, so it and the Lambda don't both post. Avoid migrating in the 15 minutes after a server's post time: imported servers haven't recorded today's cycle, so the Lambda would post again.
+2. Deploy as above, but don't set the Interactions Endpoint URL yet.
+3. Import the old data file (=TABLE_NAME= is the =TableName= stack output). =--resume-on= is the local date of the first post the Lambda will make; active streaks are carried across the gap so the downtime doesn't reset them. Check the output with =--dry-run= first:
+   #+BEGIN_SRC sh
+   cargo run --bin import-data -- bot_data.json --resume-on 2026-10-07 --dry-run
+   TABLE_NAME=... cargo run --bin import-data -- bot_data.json --resume-on 2026-10-07
+   #+END_SRC
+   The import must finish before that first post. If go-live slips past it, re-run the import with the new date.
+4. Set the Interactions Endpoint URL and register commands.
+
 * Technical Requirements
 
 ** Data Storage
-- JSON-based persistence using Serde for schema-on-read
-- File path configurable via DATA_FILE_PATH environment variable
-- In-memory structures with periodic saves to disk
-- Simple, lightweight approach suitable for moderate server counts
-- See =src/data.rs= for detailed data structures
+- DynamoDB single table with on-demand billing (see =src/store.rs= for the key layout)
+- Items are serialized with =serde_dynamo= from the structs in =src/data.rs=
+- Check-ins and streak resets use optimistic locking so concurrent updates can't double-count
+- Each daily cycle is claimed with a conditional write so it runs once even if the scheduler fires twice
 
 ** Bot Permissions
 - Send Messages
 - Create Public Threads
 - Mention Everyone (for daily pings)
 - Use Slash Commands
-- Read Message History
+- Read Message History (thread replies are read in a batch at each daily post)
 
 ** Streak Logic
-- Count consecutive days with thread responses within 24-hour window
+- Count consecutive days with a button press or thread response within 24-hour window
 - Reset to 0 for missed days (unless 30+ day grace period applies)
 - Grace period: Allow up to 2 missed days for streaks ≥30 days
 - Automatic streak maintenance when daily posts are created
@@ -112,6 +162,7 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 | ~/stats~               | View goal, streaks, and status (self or others)  | All users   |
 | ~/set-checkin-channel~ | Configure daily post channel                     | Admin only  |
 | ~/set-checkin-time~    | Configure daily post time & timezone             | Admin only  |
+| ~/trigger-checkin~     | Post the daily check-in immediately              | Bot owner   |
 
 * Project Structure
 
@@ -119,18 +170,24 @@ A Discord bot designed to facilitate daily progress tracking and accountability.
 The bot is organized into a modular structure for maintainability and scalability:
 
 #+BEGIN_SRC
+template.yaml            # SAM template: functions, table, schedule
+Makefile                 # Lambda build targets used by `sam build`
 src/
-├── main.rs              # Bot initialization and configuration
-├── handler.rs           # Discord event handler with message processing
-├── bot.rs               # Bot state management with shared data
-├── data.rs              # Data structures and JSON persistence
-├── scheduler.rs         # Daily posting and streak maintenance scheduler
-├── streaks.rs           # Streak tracking and response validation logic
+├── lib.rs               # Library root and bot token loading
+├── data.rs              # Data structures
+├── store.rs             # DynamoDB persistence
+├── daily.rs             # Daily posting cycle and scheduling
+├── streaks.rs           # Check-in recording and streak logic
+├── bin/
+│   ├── interactions.rs  # Lambda: Discord Interactions Endpoint
+│   ├── daily.rs         # Lambda: scheduled and manual daily posts
+│   ├── register_commands.rs # CLI: register slash commands
+│   └── import_data.rs   # CLI: import a bot_data.json into DynamoDB
 ├── commands/
-│   ├── mod.rs           # Command registration and routing
+│   ├── mod.rs           # Command registration and interaction routing
 │   ├── ping.rs          # Basic ping command
-│   ├── user.rs          # User commands (register/edit/deregister goals)
-│   └── admin.rs         # Admin commands (set-checkin-channel/time)
+│   ├── user.rs          # User commands (register/edit/deregister goals, stats)
+│   └── admin.rs         # Admin commands (set-checkin-channel/time, trigger-checkin)
 └── utils/
     ├── mod.rs           # Utility module exports
     ├── responses.rs     # Common response builders
@@ -142,12 +199,13 @@ src/
 - *Modular commands*: Easy to add new commands without modifying existing code
 - *Centralized routing*: All command dispatch handled in =commands/mod.rs=
 - *Shared utilities*: Consistent response formatting and reusable helpers
-- *Clean initialization*: =main.rs= only handles bot setup, no business logic
+- *Thin entry points*: the Lambda binaries only parse events and wire up dependencies
 
 ** Adding New Commands
 1. Create command functions in appropriate module (=user.rs=, =admin.rs=, or new module)
-2. Register command in =commands/mod.rs= registration and routing functions
-3. Use shared response builders from =utils/responses.rs= for consistency
+2. Register command in =commands/mod.rs= (=all_commands= and =handle_interaction=)
+3. Return a response built with =utils/responses.rs= (handlers return the response instead of sending it)
+4. Deploy, then re-run =register-commands=
 
 * Development Roadmap
 

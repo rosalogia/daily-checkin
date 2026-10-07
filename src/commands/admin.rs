@@ -1,19 +1,19 @@
 use serenity::{
-    builder::{CreateCommand, CreateCommandOption},
+    builder::{CreateCommand, CreateCommandOption, CreateInteractionResponse, CreateInteractionResponseMessage},
     model::{
         application::{CommandInteraction, CommandOptionType},
-        id::{ChannelId, GuildId, UserId},
+        id::UserId,
     },
-    prelude::*,
 };
 use crate::{
-    bot::SharedBotData,
+    commands::App,
+    daily::DailyEvent,
     data::ServerConfig,
+    store::Error,
     utils::{
         command_helpers::{get_guild_id, get_channel_option, get_string_option, is_admin, validate_timezone, validate_time_format},
         responses::{default_response},
     },
-    streaks::StreakManager,
 };
 use chrono::Utc;
 use tracing::{info, debug, error};
@@ -32,61 +32,36 @@ pub fn set_channel_command() -> CreateCommand {
 }
 
 pub async fn set_channel(
-    ctx: &Context,
+    app: &App,
     command: &CommandInteraction,
-    data: SharedBotData,
-) -> serenity::Result<()> {
+) -> Result<CreateInteractionResponse, Error> {
     info!("Set checkin channel command executed by user {}", command.user.id);
     
     // Check admin permissions
-    if !is_admin(ctx, command).await? {
-        let response = default_response("This command requires administrator permissions.");
-        command.create_response(&ctx.http, response).await?;
-        return Ok(());
+    if !is_admin(command) {
+        return Ok(default_response("This command requires administrator permissions."));
     }
     
     // Get guild ID and channel ID
     let guild_id = get_guild_id(command)?;
     let channel_id = get_channel_option(command, "channel")?;
     
-    // Update server configuration
-    {
-        let mut bot_data = data.write().await;
-        
-        // Get existing server config or create new one
-        let mut server_config = bot_data
-            .get_server_config(&guild_id)
-            .cloned()
-            .unwrap_or_else(|| ServerConfig {
-                guild_id: guild_id.clone(),
-                checkin_channel_id: None,
-                timezone: "UTC".to_string(), // Default timezone
-                daily_time: "09:00".to_string(), // Default time
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-            });
-        
-        // Update the channel ID and timestamp
-        server_config.checkin_channel_id = Some(channel_id.to_string());
-        server_config.updated_at = Utc::now();
-        
-        // Save to data store
-        bot_data.add_or_update_server(server_config);
-        
-        // Persist to disk
-        if let Err(e) = bot_data.save().await {
-            error!("Failed to save data after setting checkin channel: {}", e);
-            let response = default_response("Failed to save configuration. Please try again.");
-            command.create_response(&ctx.http, response).await?;
-            return Ok(());
-        }
+    // Get existing server config or create new one
+    let mut server_config = app.store.get_config(&guild_id).await?
+        .unwrap_or_else(|| ServerConfig::new(guild_id.clone()));
+
+    // Update the channel ID and timestamp
+    server_config.checkin_channel_id = Some(channel_id.to_string());
+    server_config.updated_at = Utc::now();
+
+    if let Err(e) = app.store.put_config(&server_config).await {
+        error!("Failed to save data after setting checkin channel: {}", e);
+        return Ok(default_response("Failed to save configuration. Please try again."));
     }
-    
+
     debug!("Successfully configured checkin channel {} for guild {}", channel_id, guild_id);
     
-    let response = default_response(&format!("Daily check-in channel has been set to <#{}>!", channel_id));
-    command.create_response(&ctx.http, response).await?;
-    Ok(())
+    Ok(default_response(&format!("Daily check-in channel has been set to <#{}>!", channel_id)))
 }
 
 pub fn set_checkin_time_command() -> CreateCommand {
@@ -111,17 +86,14 @@ pub fn set_checkin_time_command() -> CreateCommand {
 }
 
 pub async fn set_checkin_time(
-    ctx: &Context,
+    app: &App,
     command: &CommandInteraction,
-    data: SharedBotData,
-) -> serenity::Result<()> {
+) -> Result<CreateInteractionResponse, Error> {
     info!("Set checkin time command executed by user {}", command.user.id);
     
     // Check admin permissions
-    if !is_admin(ctx, command).await? {
-        let response = default_response("This command requires administrator permissions.");
-        command.create_response(&ctx.http, response).await?;
-        return Ok(());
+    if !is_admin(command) {
+        return Ok(default_response("This command requires administrator permissions."));
     }
     
     // Get guild ID
@@ -133,9 +105,7 @@ pub async fn set_checkin_time(
         Ok(time) => time,
         Err(e) => {
             error!("Invalid time format: {}", e);
-            let response = default_response("Invalid time format. Please use HH:MM format (e.g., '09:00', '13:30').");
-            command.create_response(&ctx.http, response).await?;
-            return Ok(());
+            return Ok(default_response("Invalid time format. Please use HH:MM format (e.g., '09:00', '13:30')."));
         }
     };
     
@@ -145,9 +115,7 @@ pub async fn set_checkin_time(
             Ok(tz) => tz,
             Err(e) => {
                 error!("Invalid timezone: {}", e);
-                let response = default_response("Invalid timezone. Use format like 'America/New_York', 'Europe/London', or 'UTC'.");
-                command.create_response(&ctx.http, response).await?;
-                return Ok(());
+                return Ok(default_response("Invalid timezone. Use format like 'America/New_York', 'Europe/London', or 'UTC'."));
             }
         }
     } else {
@@ -155,42 +123,22 @@ pub async fn set_checkin_time(
         "UTC".to_string()
     };
     
-    // Update server configuration
-    {
-        let mut bot_data = data.write().await;
-        
-        // Get existing server config or create new one
-        let mut server_config = bot_data
-            .get_server_config(&guild_id)
-            .cloned()
-            .unwrap_or_else(|| ServerConfig {
-                guild_id: guild_id.clone(),
-                checkin_channel_id: None,
-                timezone: "UTC".to_string(),
-                daily_time: "09:00".to_string(),
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
-            });
-        
-        // Update the time and timezone
-        server_config.daily_time = validated_time.clone();
-        if command.data.options.iter().any(|opt| opt.name == "timezone") {
-            server_config.timezone = validated_timezone.clone();
-        }
-        server_config.updated_at = Utc::now();
-        
-        // Save to data store
-        bot_data.add_or_update_server(server_config);
-        
-        // Persist to disk
-        if let Err(e) = bot_data.save().await {
-            error!("Failed to save data after setting checkin time: {}", e);
-            let response = default_response("Failed to save configuration. Please try again.");
-            command.create_response(&ctx.http, response).await?;
-            return Ok(());
-        }
+    // Get existing server config or create new one
+    let mut server_config = app.store.get_config(&guild_id).await?
+        .unwrap_or_else(|| ServerConfig::new(guild_id.clone()));
+
+    // Update the time and timezone
+    server_config.daily_time = validated_time.clone();
+    if command.data.options.iter().any(|opt| opt.name == "timezone") {
+        server_config.timezone = validated_timezone.clone();
     }
-    
+    server_config.updated_at = Utc::now();
+
+    if let Err(e) = app.store.put_config(&server_config).await {
+        error!("Failed to save data after setting checkin time: {}", e);
+        return Ok(default_response("Failed to save configuration. Please try again."));
+    }
+
     debug!("Successfully configured checkin time {} {} for guild {}", validated_time, validated_timezone, guild_id);
     
     let response = if command.data.options.iter().any(|opt| opt.name == "timezone") {
@@ -198,8 +146,7 @@ pub async fn set_checkin_time(
     } else {
         default_response(&format!("Daily check-in time has been set to {}!", validated_time))
     };
-    command.create_response(&ctx.http, response).await?;
-    Ok(())
+    Ok(response)
 }
 
 pub fn trigger_checkin_command() -> CreateCommand {
@@ -208,101 +155,44 @@ pub fn trigger_checkin_command() -> CreateCommand {
 }
 
 pub async fn trigger_checkin(
-    ctx: &Context,
+    app: &App,
     command: &CommandInteraction,
-    data: SharedBotData,
-) -> serenity::Result<()> {
+) -> Result<CreateInteractionResponse, Error> {
     const AUTHORIZED_USER_ID: u64 = 586202950116966402;
 
     info!("Trigger checkin command executed by user {}", command.user.id);
 
     // Check if user is authorized
     if command.user.id != UserId::new(AUTHORIZED_USER_ID) {
-        let response = default_response("This command is restricted to the bot owner.");
-        command.create_response(&ctx.http, response).await?;
-        return Ok(());
+        return Ok(default_response("This command is restricted to the bot owner."));
     }
 
     // Get guild ID
     let guild_id = get_guild_id(command)?;
 
     // Get server configuration
-    let channel_id = {
-        let bot_data = data.read().await;
-        match bot_data.get_server_config(&guild_id) {
-            Some(config) => {
-                match &config.checkin_channel_id {
-                    Some(id) => id.clone(),
-                    None => {
-                        let response = default_response("No check-in channel configured. Use `/set-checkin-channel` first.");
-                        command.create_response(&ctx.http, response).await?;
-                        return Ok(());
-                    }
-                }
-            }
-            None => {
-                let response = default_response("Server not configured. Use `/set-checkin-channel` first.");
-                command.create_response(&ctx.http, response).await?;
-                return Ok(());
+    let channel_id = match app.store.get_config(&guild_id).await? {
+        Some(config) => {
+            match config.checkin_channel_id {
+                Some(id) => id,
+                None => return Ok(default_response("No check-in channel configured. Use `/set-checkin-channel` first.")),
             }
         }
+        None => return Ok(default_response("Server not configured. Use `/set-checkin-channel` first.")),
     };
 
-    // Acknowledge the command
-    let response = default_response("Triggering daily check-in post...");
-    command.create_response(&ctx.http, response).await?;
-
-    let guild_id_parsed: GuildId = guild_id.parse()
-        .map_err(|_| serenity::Error::Other("Invalid guild ID"))?;
-
-    // Credit thread replies to the previous post before streak maintenance
-    match StreakManager::new(data.clone()).process_thread_replies(ctx, guild_id_parsed).await {
-        Ok(count) => info!("Credited {} thread check-ins for guild {} before manual post", count, guild_id),
-        Err(e) => error!("Failed to process thread replies for guild {}: {}", guild_id, e),
+    // Posting takes longer than Discord's 3-second response deadline, so hand it to the daily
+    // function, which edits this deferred response when it finishes
+    let event = DailyEvent::Manual {
+        guild_id,
+        channel_id,
+        application_id: command.application_id.to_string(),
+        interaction_token: command.token.clone(),
+    };
+    if let Err(e) = app.trigger_daily(&event).await {
+        error!("Failed to trigger daily function: {}", e);
+        return Ok(default_response("❌ Failed to trigger the daily check-in post. Check logs for details."));
     }
 
-    // Run streak maintenance
-    {
-        let mut bot_data = data.write().await;
-        match StreakManager::reset_streaks_for_guild(&mut bot_data, &guild_id).await {
-            Ok(reset_count) => {
-                if reset_count > 0 {
-                    info!("Reset {} streaks for guild {} before manual post", reset_count, guild_id);
-                }
-            }
-            Err(e) => {
-                error!("Failed to run streak maintenance for guild {}: {}", guild_id, e);
-            }
-        }
-
-        if let Err(e) = bot_data.save().await {
-            error!("Failed to save data after streak maintenance: {}", e);
-        }
-    }
-
-    // Parse channel ID and post the message
-    let channel_id_parsed: ChannelId = channel_id.parse()
-        .map_err(|_| serenity::Error::Other("Invalid channel ID"))?;
-
-    // Use the scheduler's post method
-    let scheduler = crate::scheduler::DailyScheduler::new(data.clone());
-    match scheduler.post_daily_message(ctx, guild_id_parsed, channel_id_parsed).await {
-        Ok(_) => {
-            info!("Successfully posted manual daily message for guild {}", guild_id);
-            // Follow up with success message
-            command.edit_response(&ctx.http,
-                serenity::builder::EditInteractionResponse::new()
-                    .content("✅ Daily check-in post created successfully!")
-            ).await?;
-        }
-        Err(e) => {
-            error!("Failed to post manual daily message: {}", e);
-            command.edit_response(&ctx.http,
-                serenity::builder::EditInteractionResponse::new()
-                    .content("❌ Failed to create daily check-in post. Check bot logs for details.")
-            ).await?;
-        }
-    }
-
-    Ok(())
+    Ok(CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()))
 }

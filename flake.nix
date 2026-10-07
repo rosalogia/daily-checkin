@@ -17,58 +17,25 @@
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" ];
+          # Lambda runs on Graviton (arm64)
+          targets = [ "aarch64-unknown-linux-gnu" ];
         };
 
-        # Extract package info from Cargo.toml
-        manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
-
-        # Build inputs needed for the bot (removed sqlite)
-        buildInputs = with pkgs; [
-          pkg-config
-          openssl
-          libressl
-        ];
       in
       {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-            pname = manifest.name;
-            version = manifest.version;
-
-            src = pkgs.lib.cleanSource ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-
-            nativeBuildInputs = buildInputs;
-            buildInputs = buildInputs;
-
-            env = {
-              PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
-            };
-
-            # Skip tests during build as they may require network access
-            doCheck = false;
-
-            meta = with pkgs.lib; {
-              description = manifest.description or "Discord bot for daily check-ins and streak tracking";
-              license = licenses.mit;
-              maintainers = [ ];
-            };
-        };
-
-        apps.default = {
-          type = "app";
-          program = "${self.packages.${system}.default}/bin/daily-checkin-bot";
-        };
-
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             rustToolchain
             cargo-watch
             cargo-edit
-          ] ++ buildInputs;
+            cargo-lambda
+            zig
+            awscli2
+            aws-sam-cli
+          ];
 
           env = {
             RUST_BACKTRACE = "1";
-            PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
           };
 
           shellHook = ''
@@ -77,14 +44,12 @@
             echo "Cargo version: $(cargo --version)"
             echo ""
             echo "Available commands:"
-            echo "  cargo run              - Run the bot (requires .env file)"
-            echo "  cargo watch -x run     - Auto-rebuild and run on changes"
-            echo "  nix build              - Build release binary"
-            echo "  nix run                - Run the built binary"
+            echo "  cargo test                             - Run tests"
+            echo "  sam build && sam deploy                - Build and deploy to AWS"
+            echo "  cargo run --bin register-commands      - Register slash commands (requires .env)"
+            echo "  cargo run --bin import-data -- <file>  - Import a bot_data.json into DynamoDB"
           '';
         };
       }
-    )) // {
-      nixosModules.daily-checkin = import ./nix/daily-checkin-module.nix;
-    };
+    ));
 }

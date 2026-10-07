@@ -1,9 +1,8 @@
 use serenity::{
-    builder::{CreateCommand, CreateCommandOption, CreateEmbed},
+    builder::{CreateCommand, CreateCommandOption, CreateEmbed, CreateInteractionResponse},
     model::application::{CommandInteraction, CommandOptionType},
-    prelude::*,
 };
-use crate::{bot::SharedBotData, data::UserData, utils::{command_helpers, responses}};
+use crate::{commands::App, data::UserData, store::Error, utils::{command_helpers, responses}};
 use chrono::Utc;
 use tracing::{info, error};
 
@@ -54,10 +53,9 @@ pub fn stats_command() -> CreateCommand {
 }
 
 pub async fn register_goal(
-    ctx: &Context,
+    app: &App,
     command: &CommandInteraction,
-    data: SharedBotData,
-) -> serenity::Result<()> {
+) -> Result<CreateInteractionResponse, Error> {
     // Extract context and arguments using helper functions with ? operator
     let user_id = command_helpers::get_user_id(command);
     let guild_id = command_helpers::get_guild_id(command)?;
@@ -66,20 +64,16 @@ pub async fn register_goal(
     info!("Register goal command executed by user {}", user_id);
 
     // Validate goal length
-    if goal.len() > 500 {
-        let response = responses::default_response("Goal must be 500 characters or less.");
-        command.create_response(&ctx.http, response).await?;
-        return Ok(());
+    if goal.chars().count() > 500 {
+        return Ok(responses::default_response("Goal must be 500 characters or less."));
     }
 
     let now = Utc::now();
     let is_update;
 
     // Update or create user data
-    {
-        let mut data_write = data.write().await;
-        
-        if let Some(existing_user) = data_write.get_user_mut(&guild_id, &user_id) {
+    let user_data = match app.store.get_user(&guild_id, &user_id).await? {
+        Some(mut existing_user) => {
             if existing_user.is_active {
                 // Update existing active user - preserve all streak data
                 existing_user.goal = goal.clone();
@@ -95,9 +89,12 @@ pub async fn register_goal(
                 existing_user.updated_at = now;
                 is_update = false; // Treat as new registration for messaging
             }
-        } else {
+            existing_user
+        }
+        None => {
             // Create new user
-            let user_data = UserData {
+            is_update = false;
+            UserData {
                 user_id: user_id.clone(),
                 goal: goal.clone(),
                 current_streak: 0,
@@ -108,17 +105,13 @@ pub async fn register_goal(
                 has_used_reaction_checkin: false,
                 created_at: now,
                 updated_at: now,
-            };
-            data_write.add_or_update_user(guild_id.clone(), user_data);
-            is_update = false;
+            }
         }
-        
-        if let Err(e) = data_write.save().await {
-            error!("Failed to save user data: {}", e);
-            let response = responses::default_response("Failed to save your goal. Please try again.");
-            command.create_response(&ctx.http, response).await?;
-            return Ok(());
-        }
+    };
+
+    if let Err(e) = app.store.put_user(&guild_id, &user_data).await {
+        error!("Failed to save user data: {}", e);
+        return Ok(responses::default_response("Failed to save your goal. Please try again."));
     }
 
     // Send success response
@@ -128,31 +121,26 @@ pub async fn register_goal(
         format!("Your goal has been set to: **{}**\n\nYou'll be pinged for daily check-ins to track your progress!", goal)
     };
 
-    let response = responses::default_response(&message);
-    command.create_response(&ctx.http, response).await?;
-
-    info!("Successfully {} goal for user {} in guild {}", 
-          if is_update { "updated" } else { "registered" }, 
-          user_id, 
+    info!("Successfully {} goal for user {} in guild {}",
+          if is_update { "updated" } else { "registered" },
+          user_id,
           guild_id);
 
-    Ok(())
+    Ok(responses::default_response(&message))
 }
 
 pub async fn edit_goal(
-    ctx: &Context,
+    app: &App,
     command: &CommandInteraction,
-    data: SharedBotData,
-) -> serenity::Result<()> {
+) -> Result<CreateInteractionResponse, Error> {
     // /edit-goal is an alias for /register-goal - same functionality, clearer intent
-    register_goal(ctx, command, data).await
+    register_goal(app, command).await
 }
 
 pub async fn deregister(
-    ctx: &Context,
+    app: &App,
     command: &CommandInteraction,
-    data: SharedBotData,
-) -> serenity::Result<()> {
+) -> Result<CreateInteractionResponse, Error> {
     // Extract context using helper functions
     let user_id = command_helpers::get_user_id(command);
     let guild_id = command_helpers::get_guild_id(command)?;
@@ -160,42 +148,30 @@ pub async fn deregister(
     info!("Deregister command executed by user {}", user_id);
 
     // Deactivate user (preserve data for potential re-registration)
-    {
-        let mut data_write = data.write().await;
-        
-        let existing_user = data_write.get_user_mut(&guild_id, &user_id)
-            .ok_or_else(|| serenity::Error::Other("You're not currently registered for daily check-ins"))?;
-        
-        if !existing_user.is_active {
-            return Err(serenity::Error::Other("You're not currently registered for daily check-ins"));
-        }
-        
-        let current_streak = existing_user.current_streak;
-        existing_user.is_active = false;
-        existing_user.updated_at = Utc::now();
-        
-        if let Err(e) = data_write.save().await {
-            error!("Failed to save user data: {}", e);
-            let response = responses::default_response("Failed to remove your registration. Please try again.");
-            command.create_response(&ctx.http, response).await?;
-            return Ok(());
-        }
+    let mut existing_user = match app.store.get_user(&guild_id, &user_id).await? {
+        Some(user) if user.is_active => user,
+        _ => return Err(serenity::Error::Other("You're not currently registered for daily check-ins").into()),
+    };
 
-        let message = format!("You have been removed from daily check-ins. Your streak was {} days. Use `/register-goal` to re-register later if you'd like.", current_streak);
-        let response = responses::default_response(&message);
-        command.create_response(&ctx.http, response).await?;
+    let current_streak = existing_user.current_streak;
+    existing_user.is_active = false;
+    existing_user.updated_at = Utc::now();
 
-        info!("Successfully deactivated user {} in guild {}", user_id, guild_id);
+    if let Err(e) = app.store.put_user(&guild_id, &existing_user).await {
+        error!("Failed to save user data: {}", e);
+        return Ok(responses::default_response("Failed to remove your registration. Please try again."));
     }
 
-    Ok(())
+    info!("Successfully deactivated user {} in guild {}", user_id, guild_id);
+
+    let message = format!("You have been removed from daily check-ins. Your streak was {} days. Use `/register-goal` to re-register later if you'd like.", current_streak);
+    Ok(responses::default_response(&message))
 }
 
 pub async fn stats(
-    ctx: &Context,
+    app: &App,
     command: &CommandInteraction,
-    data: SharedBotData,
-) -> serenity::Result<()> {
+) -> Result<CreateInteractionResponse, Error> {
     use chrono::Duration;
     use serenity::model::application::CommandDataOptionValue;
 
@@ -213,9 +189,7 @@ pub async fn stats(
     info!("Stats command executed by user {} for user {}", command_helpers::get_user_id(command), target_user_id);
 
     // Get user data
-    let data_read = data.read().await;
-
-    let user = match data_read.get_user(&guild_id, &target_user_id) {
+    let user = match app.store.get_user(&guild_id, &target_user_id).await? {
         Some(user) if user.is_active => user,
         _ => {
             let msg = if is_self {
@@ -223,9 +197,7 @@ pub async fn stats(
             } else {
                 "That user is not currently registered for daily check-ins."
             };
-            let response = responses::default_response(msg);
-            command.create_response(&ctx.http, response).await?;
-            return Ok(());
+            return Ok(responses::default_response(msg));
         }
     };
 
@@ -254,7 +226,7 @@ pub async fn stats(
         .field("🏆 Longest Streak", format!("{} days", user.longest_streak), true);
 
     // Check-in status field
-    let checkin_status = if let Some(daily_post) = data_read.daily_posts.get(&guild_id) {
+    let checkin_status = if let Some(daily_post) = app.store.get_post(&guild_id).await? {
         let post_date = daily_post.posted_at.date_naive();
         let now = Utc::now();
 
@@ -283,9 +255,6 @@ pub async fn stats(
 
     embed = embed.field("📅 Today's Check-in", checkin_status, false);
 
-    let response = responses::embed_response(embed);
-    command.create_response(&ctx.http, response).await?;
-
     info!("Successfully displayed stats for user {} in guild {}", target_user_id, guild_id);
-    Ok(())
+    Ok(responses::embed_response(embed))
 }
