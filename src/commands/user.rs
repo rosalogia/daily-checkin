@@ -241,12 +241,11 @@ pub async fn stats(
 
     // Check-in status field
     let checkin_status = if let Some(daily_post) = app.store.get_post(guild_id).await? {
-        let post_date = daily_post.posted_at.date_naive();
         let now = Utc::now();
 
-        // Check if user has checked in today
+        // Check if user has checked in on the current post
         let has_checked_in_today = user.last_checkin_date
-            .map(|last_checkin| last_checkin >= post_date)
+            .map(|last_checkin| last_checkin >= daily_post.cycle_date)
             .unwrap_or(false);
 
         if has_checked_in_today {

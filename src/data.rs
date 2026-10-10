@@ -59,6 +59,9 @@ impl ServerConfig {
 /// A guild's current daily post, stored as the `daily_post` map on its guilds table item
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailyPost {
+    /// The day this post represents: the server's local date when it was scheduled. Check-ins
+    /// on the post count for this day no matter what time they happen.
+    pub cycle_date: NaiveDate,
     pub channel_id: u64,
     pub message_id: u64,
     pub thread_id: Option<u64>,

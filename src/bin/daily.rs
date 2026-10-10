@@ -4,6 +4,7 @@
 use daily_checkin_bot::{daily::{self, DailyEvent}, load_discord_token, store::Store};
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use serenity::{builder::EditInteractionResponse, http::Http, model::id::{ApplicationId, ChannelId}};
+use chrono::Utc;
 use tracing::{error, info};
 
 #[tokio::main]
@@ -21,7 +22,13 @@ async fn handle(store: &Store, http: &Http, event: DailyEvent) -> Result<(), Err
         DailyEvent::Scheduled => daily::run_due_cycles(store, http).await,
         DailyEvent::Manual { guild_id, channel_id, application_id, interaction_token } => {
             info!("Running manual daily cycle for guild {}", guild_id);
-            let result = daily::run_cycle(store, http, guild_id, ChannelId::new(channel_id)).await;
+            let result = match store.get_config(guild_id).await? {
+                Some(config) => {
+                    let cycle_date = daily::local_date(&config, Utc::now())?;
+                    daily::run_cycle(store, http, guild_id, ChannelId::new(channel_id), cycle_date).await
+                }
+                None => Err(format!("No configuration for guild {}", guild_id).into()),
+            };
 
             let content = match &result {
                 Ok(()) => {

@@ -256,6 +256,7 @@ For established streaks (30+ days), you can miss up to 2 consecutive days withou
 - You have exactly **24 hours** from when the daily post is created to respond
 - Late responses don't count toward your streak
 - The 24-hour window is based on the daily post time, not midnight
+- A check-in counts for the post it's on, so checking in late in the window (e.g. just before the next post) still counts for that day
 
 ** Streak Display
 Streaks are shown in the daily post next to your name:

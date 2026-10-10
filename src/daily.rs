@@ -43,6 +43,12 @@ pub fn scheduled_at(config: &ServerConfig, local_date: NaiveDate) -> Result<Opti
     Ok(tz.from_local_datetime(&local_date.and_time(target_time)).earliest().map(|local| local.with_timezone(&Utc)))
 }
 
+/// The server's local date at `instant`, which is the cycle date of a post made then
+pub fn local_date(config: &ServerConfig, instant: DateTime<Utc>) -> Result<NaiveDate, Error> {
+    let tz: Tz = config.timezone.parse()?;
+    Ok(instant.with_timezone(&tz).date_naive())
+}
+
 /// The UTC instant of today's configured post time for a server, if it falls within the
 /// catch-up window ending at `now`
 pub fn due_cycle(config: &ServerConfig, now: DateTime<Utc>) -> Result<Option<DateTime<Utc>>, Error> {
@@ -99,7 +105,8 @@ pub async fn run_due_cycles(store: &Store, http: &Http) -> Result<(), Error> {
         }
 
         info!("Posting daily message for guild {} in channel {}", guild_id, channel_id);
-        if let Err(e) = run_cycle(store, http, guild_id, channel_id).await {
+        let cycle_date = local_date(&config, scheduled_at)?;
+        if let Err(e) = run_cycle(store, http, guild_id, channel_id, cycle_date).await {
             error!("Daily cycle failed for guild {}: {}", guild_id, e);
         }
     }
@@ -107,8 +114,9 @@ pub async fn run_due_cycles(store: &Store, http: &Http) -> Result<(), Error> {
     Ok(())
 }
 
-/// Credit thread replies to the previous post, reset missed streaks, then post the new daily message
-pub async fn run_cycle(store: &Store, http: &Http, guild_id: u64, channel_id: ChannelId) -> Result<(), Error> {
+/// Credit thread replies to the previous post, reset missed streaks, then post the new daily
+/// message for `cycle_date`
+pub async fn run_cycle(store: &Store, http: &Http, guild_id: u64, channel_id: ChannelId, cycle_date: NaiveDate) -> Result<(), Error> {
     let streak_manager = StreakManager::new(store.clone());
     let previous_post = store.get_post(guild_id).await?;
 
@@ -121,7 +129,7 @@ pub async fn run_cycle(store: &Store, http: &Http, guild_id: u64, channel_id: Ch
     }
 
     // Run streak maintenance
-    match streak_manager.reset_streaks_for_guild(guild_id).await {
+    match streak_manager.reset_streaks_for_guild(guild_id, cycle_date).await {
         Ok(reset_count) => {
             if reset_count > 0 {
                 info!("Reset {} streaks for guild {} before daily post", reset_count, guild_id);
@@ -139,7 +147,7 @@ pub async fn run_cycle(store: &Store, http: &Http, guild_id: u64, channel_id: Ch
         }
     }
 
-    post_daily_message(store, http, guild_id, channel_id).await
+    post_daily_message(store, http, guild_id, channel_id, cycle_date).await
 }
 
 /// Archive a daily post (archive thread + delete message)
@@ -163,7 +171,7 @@ async fn archive_post(http: &Http, guild_id: u64, post: &DailyPost) -> Result<()
 }
 
 /// Post the daily check-in message
-async fn post_daily_message(store: &Store, http: &Http, guild_id: u64, channel_id: ChannelId) -> Result<(), Error> {
+async fn post_daily_message(store: &Store, http: &Http, guild_id: u64, channel_id: ChannelId, cycle_date: NaiveDate) -> Result<(), Error> {
     // Active users, sorted by streak (highest first) for motivation
     let mut active_users: Vec<UserData> = store.list_users(guild_id).await?
         .into_iter()
@@ -182,9 +190,8 @@ async fn post_daily_message(store: &Store, http: &Http, guild_id: u64, channel_i
             .components(vec![CreateActionRow::Buttons(vec![checkin_button])])
     ).await?;
 
-    // Create a thread with today's date
-    let today = Utc::now().format("%m/%d/%y");
-    let thread_name = format!("Daily Check-in Responses {}", today);
+    // Create a thread named for the post's day
+    let thread_name = format!("Daily Check-in Responses {}", cycle_date.format("%m/%d/%y"));
     let thread = message
         .channel_id
         .create_thread(http, CreateThread::new(thread_name).kind(ChannelType::PublicThread))
@@ -196,6 +203,7 @@ async fn post_daily_message(store: &Store, http: &Http, guild_id: u64, channel_i
     // Save the daily post record
     let now = Utc::now();
     let daily_post = DailyPost {
+        cycle_date,
         channel_id: channel_id.get(),
         message_id: message.id.get(),
         thread_id: Some(thread.id.get()),
@@ -272,6 +280,10 @@ mod tests {
         s.parse().unwrap()
     }
 
+    fn date(s: &str) -> NaiveDate {
+        s.parse().unwrap()
+    }
+
     #[test]
     fn due_at_and_shortly_after_scheduled_time() {
         let c = config("09:00", "America/New_York", None);
@@ -295,6 +307,29 @@ mod tests {
         // Yesterday's claim doesn't block today
         let c = config("09:00", "UTC", Some(utc("2026-10-05T09:00:00Z")));
         assert_eq!(due_cycle(&c, utc("2026-10-06T09:01:00Z")).unwrap(), Some(utc("2026-10-06T09:00:00Z")));
+    }
+
+    #[test]
+    fn cycle_date_is_the_servers_local_date() {
+        // A 21:00 New York post goes out at 01:00 UTC the next day, but belongs to the New
+        // York date. A check-in between 20:00 and 21:00 New York the following evening (already
+        // the day after that in UTC) still counts for the same post.
+        let c = config("21:00", "America/New_York", None);
+        let posted = scheduled_at(&c, date("2026-10-08")).unwrap().unwrap();
+        assert_eq!(posted, utc("2026-10-09T01:00:00Z"));
+        assert_eq!(local_date(&c, posted).unwrap(), date("2026-10-08"));
+    }
+
+    #[test]
+    fn cycle_dates_stay_consecutive_across_dst() {
+        // At 19:30 New York, posts move from 23:30 UTC to 00:30 UTC when DST ends (Nov 1,
+        // 2026). UTC dates would skip a day (10/31 -> 11/2); local dates don't.
+        let c = config("19:30", "America/New_York", None);
+        let before = scheduled_at(&c, date("2026-10-31")).unwrap().unwrap();
+        let after = scheduled_at(&c, date("2026-11-01")).unwrap().unwrap();
+        assert_eq!((before.date_naive(), after.date_naive()), (date("2026-10-31"), date("2026-11-02")));
+        assert_eq!(local_date(&c, before).unwrap(), date("2026-10-31"));
+        assert_eq!(local_date(&c, after).unwrap(), date("2026-11-01"));
     }
 
     #[test]
