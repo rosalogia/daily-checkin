@@ -8,7 +8,7 @@ use serenity::{
         id::{ChannelId, MessageId, UserId},
     },
 };
-use std::collections::HashMap;
+use std::collections::HashSet;
 use tracing::{info, debug, warn};
 
 /// Custom ID of the check-in button attached to each daily post
@@ -42,8 +42,8 @@ impl StreakManager {
         };
         let deadline = post.posted_at + Duration::hours(24);
 
-        // Find each user's earliest reply within 24 hours of the post
-        let mut first_replies: HashMap<UserId, chrono::DateTime<Utc>> = HashMap::new();
+        // Find users who replied within 24 hours of the post
+        let mut repliers: HashSet<UserId> = HashSet::new();
         let mut before: Option<MessageId> = None;
         loop {
             let mut request = GetMessages::new().limit(100);
@@ -61,10 +61,7 @@ impl StreakManager {
                 if message_time > deadline {
                     continue;
                 }
-                first_replies
-                    .entry(msg.author.id)
-                    .and_modify(|t| *t = (*t).min(message_time))
-                    .or_insert(message_time);
+                repliers.insert(msg.author.id);
             }
 
             // Messages come back newest first; stop once a page isn't full
@@ -75,9 +72,9 @@ impl StreakManager {
         }
 
         let mut credited = 0;
-        for (user_id, message_time) in first_replies {
+        for user_id in repliers {
             info!("Processing thread check-in from user {} in guild {}", user_id, guild_id);
-            if let CheckinOutcome::CheckedIn { .. } = self.record_checkin(guild_id, post, user_id.get(), &message_time, false).await? {
+            if let CheckinOutcome::CheckedIn { .. } = self.record_checkin(guild_id, post, user_id.get(), false).await? {
                 credited += 1;
             }
         }
@@ -101,7 +98,7 @@ impl StreakManager {
         };
 
         info!("Processing check-in button from user {} in guild {}", component.user.id, guild_id);
-        let reply = match self.record_checkin(guild_id, &post, component.user.id.get(), &click_time, true).await? {
+        let reply = match self.record_checkin(guild_id, &post, component.user.id.get(), true).await? {
             CheckinOutcome::CheckedIn { streak } => format!("✅ Checked in! Your streak is now 🔥**{}**", streak),
             // ThreadCheckinsDisabled only applies to thread replies, never the button
             CheckinOutcome::AlreadyCheckedIn | CheckinOutcome::ThreadCheckinsDisabled => "You've already checked in today.".to_string(),
@@ -119,12 +116,8 @@ impl StreakManager {
         guild_id: u64,
         post: &DailyPost,
         user_id: u64,
-        message_time: &chrono::DateTime<Utc>,
         via_button: bool,
     ) -> Result<CheckinOutcome, Error> {
-        let post_date = post.posted_at.date_naive();
-        let response_date = message_time.date_naive();
-
         // Retry if a concurrent check-in or streak reset modifies the user between read and write
         for _ in 0..3 {
             let mut user = match self.store.get_user(guild_id, user_id).await? {
@@ -139,32 +132,46 @@ impl StreakManager {
                 }
             };
 
-            // Skip thread replies from users who have turned off thread check-ins
-            if !via_button && !user.thread_checkins {
-                debug!("User {} has thread check-ins off, ignoring thread replies in guild {}", user_id, guild_id);
-                return Ok(CheckinOutcome::ThreadCheckinsDisabled);
-            }
-
-            // If they already checked in on or after the day this post was created, skip
-            if user.last_checkin_date.is_some_and(|last_checkin| last_checkin >= post_date) {
-                debug!("User {} already checked in for this daily post cycle in guild {}", user_id, guild_id);
-                return Ok(CheckinOutcome::AlreadyCheckedIn);
-            }
-
             let read_updated_at = user.updated_at;
+            let outcome = Self::apply_checkin(&mut user, post.cycle_date, via_button);
+            match outcome {
+                CheckinOutcome::CheckedIn { .. } => {}
+                CheckinOutcome::ThreadCheckinsDisabled => {
+                    debug!("User {} has thread check-ins off, ignoring thread replies in guild {}", user_id, guild_id);
+                    return Ok(outcome);
+                }
+                _ => {
+                    debug!("User {} already checked in for this daily post cycle in guild {}", user_id, guild_id);
+                    return Ok(outcome);
+                }
+            }
 
-            // Update user streak
-            Self::update_user_streak(&mut user, response_date);
             user.updated_at = Utc::now();
-
             if self.store.put_user_if_unchanged(&user, read_updated_at).await? {
                 info!("User {} checked in! New streak: {} days", user_id, user.current_streak);
-                return Ok(CheckinOutcome::CheckedIn { streak: user.current_streak });
+                return Ok(outcome);
             }
             debug!("User {} in guild {} changed during check-in, retrying", user_id, guild_id);
         }
 
         Err(format!("Too many concurrent updates for user {} in guild {}", user_id, guild_id).into())
+    }
+
+    /// Apply an active user's check-in on the post for `cycle_date`, updating their streak.
+    /// The check-in counts for the post's day regardless of when it happened.
+    fn apply_checkin(user: &mut UserData, cycle_date: NaiveDate, via_button: bool) -> CheckinOutcome {
+        // Skip thread replies from users who have turned off thread check-ins
+        if !via_button && !user.thread_checkins {
+            return CheckinOutcome::ThreadCheckinsDisabled;
+        }
+
+        // Skip if they already checked in for this post's day (or a later one)
+        if user.last_checkin_date.is_some_and(|last_checkin| last_checkin >= cycle_date) {
+            return CheckinOutcome::AlreadyCheckedIn;
+        }
+
+        Self::update_user_streak(user, cycle_date);
+        CheckinOutcome::CheckedIn { streak: user.current_streak }
     }
 
     /// Update a user's streak based on their check-in
@@ -215,10 +222,10 @@ impl StreakManager {
     }
 
     /// Carry an active streak across a period when the bot couldn't post, by moving the last
-    /// check-in to the day before `first_post_date` (the UTC date of the first post after the
+    /// check-in to the day before `first_cycle_date` (the cycle date of the first post after the
     /// outage). Returns whether the user was changed.
-    pub fn bridge_outage(user: &mut UserData, first_post_date: NaiveDate) -> bool {
-        let bridged_date = match first_post_date.pred_opt() {
+    pub fn bridge_outage(user: &mut UserData, first_cycle_date: NaiveDate) -> bool {
+        let bridged_date = match first_cycle_date.pred_opt() {
             Some(date) => date,
             None => return false,
         };
@@ -237,40 +244,48 @@ impl StreakManager {
         }
     }
 
-    /// Reset streaks for users in a guild who missed yesterday's check-in
-    pub async fn reset_streaks_for_guild(&self, guild_id: u64) -> Result<u32, Error> {
-        let yesterday = Utc::now().date_naive().pred_opt().unwrap_or(Utc::now().date_naive());
+    /// Reset streaks for users in a guild who missed the previous post, run before the post
+    /// for `cycle_date` goes out
+    pub async fn reset_streaks_for_guild(&self, guild_id: u64, cycle_date: NaiveDate) -> Result<u32, Error> {
         let mut reset_count = 0;
 
         for mut user in self.store.list_users(guild_id).await? {
-            if !user.is_active {
+            if !Self::missed_previous_cycle(&user, cycle_date) {
                 continue;
             }
 
-            // Check if user missed yesterday's check-in
-            if let Some(last_checkin) = user.last_checkin_date {
-                if last_checkin < yesterday {
-                    // User missed check-in, check if grace period applies
-                    if !Self::should_apply_grace_period(&user, last_checkin, yesterday.succ_opt().unwrap_or(yesterday)) {
-                        // Reset streak
-                        let read_updated_at = user.updated_at;
-                        user.current_streak = 0;
-                        user.grace_period_start = None;
-                        user.updated_at = Utc::now();
+            // Reset streak
+            let read_updated_at = user.updated_at;
+            user.current_streak = 0;
+            user.grace_period_start = None;
+            user.updated_at = Utc::now();
 
-                        // If the user changed concurrently (e.g. just checked in), leave them alone
-                        if self.store.put_user_if_unchanged(&user, read_updated_at).await? {
-                            reset_count += 1;
-                            info!("Reset streak for user {} in guild {} due to missed check-in", user.user_id, guild_id);
-                        } else {
-                            warn!("User {} in guild {} changed during streak reset, skipping", user.user_id, guild_id);
-                        }
-                    }
-                }
+            // If the user changed concurrently (e.g. just checked in), leave them alone
+            if self.store.put_user_if_unchanged(&user, read_updated_at).await? {
+                reset_count += 1;
+                info!("Reset streak for user {} in guild {} due to missed check-in", user.user_id, guild_id);
+            } else {
+                warn!("User {} in guild {} changed during streak reset, skipping", user.user_id, guild_id);
             }
         }
 
         Ok(reset_count)
+    }
+
+    /// Whether an active user missed the post before `cycle_date` and isn't covered by the
+    /// grace period, so their streak should reset
+    fn missed_previous_cycle(user: &UserData, cycle_date: NaiveDate) -> bool {
+        let previous_cycle = match cycle_date.pred_opt() {
+            Some(date) => date,
+            None => return false,
+        };
+
+        match user.last_checkin_date {
+            Some(last_checkin) if user.is_active && last_checkin < previous_cycle => {
+                !Self::should_apply_grace_period(user, last_checkin, cycle_date)
+            }
+            _ => false,
+        }
     }
 
     /// Helper function for grace period logic
@@ -345,6 +360,43 @@ mod tests {
     fn bridge_skips_broken_and_inactive_streaks() {
         assert!(!StreakManager::bridge_outage(&mut user(0, "2026-03-22", true), date("2026-10-08")));
         assert!(!StreakManager::bridge_outage(&mut user(13, "2026-03-06", false), date("2026-10-08")));
+    }
+
+    #[test]
+    fn checkins_count_for_the_post_day() {
+        // One check-in per post, whatever time of day it happens: each post's cycle date
+        // decides the day, so consecutive posts extend the streak
+        let mut u = user(5, "2026-10-07", true);
+        assert!(matches!(StreakManager::apply_checkin(&mut u, date("2026-10-08"), true), CheckinOutcome::CheckedIn { streak: 6 }));
+        assert!(matches!(StreakManager::apply_checkin(&mut u, date("2026-10-09"), false), CheckinOutcome::CheckedIn { streak: 7 }));
+        assert_eq!(u.last_checkin_date, Some(date("2026-10-09")));
+    }
+
+    #[test]
+    fn second_checkin_on_same_post_is_ignored() {
+        let mut u = user(5, "2026-10-08", true);
+        assert!(matches!(StreakManager::apply_checkin(&mut u, date("2026-10-08"), true), CheckinOutcome::AlreadyCheckedIn));
+        assert_eq!(u.current_streak, 5);
+    }
+
+    #[test]
+    fn thread_replies_ignored_when_disabled_but_button_counts() {
+        let mut u = user(5, "2026-10-07", true);
+        u.thread_checkins = false;
+        assert!(matches!(StreakManager::apply_checkin(&mut u, date("2026-10-08"), false), CheckinOutcome::ThreadCheckinsDisabled));
+        assert!(matches!(StreakManager::apply_checkin(&mut u, date("2026-10-08"), true), CheckinOutcome::CheckedIn { streak: 6 }));
+    }
+
+    #[test]
+    fn reset_only_after_missing_the_previous_post() {
+        // Before the 10/10 post: checked in on the 10/9 post, safe
+        assert!(!StreakManager::missed_previous_cycle(&user(5, "2026-10-09", true), date("2026-10-10")));
+        // Last checked in on the 10/8 post, so missed 10/9
+        assert!(StreakManager::missed_previous_cycle(&user(5, "2026-10-08", true), date("2026-10-10")));
+        // 30+ day streaks get a grace period for the miss
+        assert!(!StreakManager::missed_previous_cycle(&user(45, "2026-10-08", true), date("2026-10-10")));
+        // Inactive users are left alone
+        assert!(!StreakManager::missed_previous_cycle(&user(5, "2026-10-01", false), date("2026-10-10")));
     }
 
     #[test]

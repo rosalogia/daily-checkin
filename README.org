@@ -167,6 +167,7 @@ The Rust version is pinned in =rust-toolchain.toml=, which both the Nix dev shel
 
 ** Streak Logic
 - Count consecutive days with a button press or thread response within 24-hour window
+- Each post counts as one day (its date in the server's timezone), whatever time a check-in happens
 - The button always counts; thread responses count unless the user turned them off with ~/thread-checkins~
 - Reset to 0 for missed days (unless 30+ day grace period applies)
 - Grace period: Allow up to 2 missed days for streaks ≥30 days

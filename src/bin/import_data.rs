@@ -98,7 +98,11 @@ fn convert(data: LegacyBotData) -> Result<(Vec<ServerConfig>, Vec<UserData>, Vec
 
     let mut posts = Vec::new();
     for (guild_id, legacy) in data.daily_posts {
-        posts.push((parse_id(&guild_id)?, DailyPost {
+        let guild_id = parse_id(&guild_id)?;
+        let config = configs.iter().find(|c| c.guild_id == guild_id)
+            .ok_or_else(|| format!("Daily post for guild {} has no server config", guild_id))?;
+        posts.push((guild_id, DailyPost {
+            cycle_date: daily::local_date(config, legacy.posted_at)?,
             channel_id: parse_id(&legacy.channel_id)?,
             message_id: parse_id(&legacy.message_id)?,
             thread_id: legacy.thread_id.as_deref().map(parse_id).transpose()?,
@@ -141,7 +145,7 @@ async fn main() -> Result<(), Error> {
 
             for user in users.iter_mut().filter(|user| user.guild_id == config.guild_id) {
                 let last_checkin = user.last_checkin_date;
-                if StreakManager::bridge_outage(user, first_post.date_naive()) {
+                if StreakManager::bridge_outage(user, local_date) {
                     println!(
                         "  Carried streak {} for user {} (last check-in {} -> {})",
                         user.current_streak,
